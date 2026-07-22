@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Motor de Preparació de Comandes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=19">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
+</head>
+<body>
+
+    <!-- Print header (only visible when printing) -->
+    <div class="print-header">Motor de Preparació de Comandes de Venda</div>
+
+    <!-- Header -->
+    <header class="app-header">
+        <div style="max-width: 1400px; margin: 0 auto; padding: 0 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h1>Motor de Preparació de Comandes de Venda</h1>
+                <p class="subtitle">Càlcul automàtic d'embalatges</p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <button id="btn-preview-palets" class="dark-toggle" title="Activar/desactivar preview de palets al hover" aria-label="Commuta preview de palets">&#128230;</button>
+                <button id="btn-dark-mode" class="dark-toggle" title="Mode fosc/clar" aria-label="Commuta mode fosc/clar">&#9790;</button>
+                <a href="/calendari" class="help-link" target="_blank" rel="noopener" title="Calendari de c&agrave;rregues" aria-label="Obrir calendari de c&agrave;rregues">&#128197; Calendari</a>
+                <a href="/ajuda" class="help-link" target="_blank" title="Ajuda" aria-label="Obrir p&agrave;gina d'ajuda">? Ajuda</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Search -->
+    <section class="search-section">
+        <div style="max-width: 1400px; margin: 0 auto; padding: 0 1.5rem;">
+            <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                <form id="search-form" class="search-form">
+                    <label for="pedi-num">Comanda</label>
+                    <input type="text" id="pedi-num" placeholder="Sèrie/Número (ex: 01/0002456)" autocomplete="off">
+                    <button type="submit" id="btn-calcular">Calcular</button>
+                </form>
+                <button id="btn-batch" class="toolbar-btn hidden" title="Processar vàries comandes (Ctrl+B)">Lot</button>
+                <button id="btn-home" class="btn-home hidden" title="Tornar a la llista (Esc)">&#8962; Inici</button>
+            </div>
+            <!-- Recent orders -->
+            <div id="recent-orders" class="recent-orders"></div>
+        </div>
+    </section>
+
+    <!-- Results -->
+    <div class="main-content" id="results">
+
+        <!-- Batch mode -->
+        <div id="batch-state" class="hidden">
+            <div class="batch-section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                    <strong>Processament per lots</strong>
+                    <button id="btn-batch-close" class="toolbar-btn">Tancar</button>
+                </div>
+                <textarea id="batch-input" placeholder="Una comanda per línia (Sèrie/Número):&#10;01/0002456&#10;01/0002457&#10;01/0002458"></textarea>
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+                    <button id="btn-batch-calc" class="toolbar-btn toolbar-btn-primary">Calcular tot</button>
+                    <span id="batch-progress" style="font-size: 0.82rem; color: var(--gray-500); align-self: center;"></span>
+                </div>
+                <div id="batch-results" class="batch-results"></div>
+                <!-- Batch summary -->
+                <div id="batch-summary" class="hidden" style="margin-top: 1rem;"></div>
+            </div>
+        </div>
+
+        <!-- Empty state: ultimes comandes -->
+        <div id="empty-state">
+            <div class="card">
+                <div class="card-header" style="justify-content: space-between;">
+                    <span>&#128203; &Uacute;ltimes Comandes</span>
+                    <div class="filtres-inline" id="filtres-ultimes">
+                        <input type="text" id="filtre-text" placeholder="Cercar client, article..." class="filtre-input">
+                        <select id="filtre-estat" class="filtre-select">
+                            <option value="">Tots els estats</option>
+                            <option value="CALCULAT">OK</option>
+                            <option value="CALCULAT_AMB_AVISOS">Amb avisos</option>
+                            <option value="SOTA_MINIM">Sota m&iacute;nim</option>
+                            <option value="NO_CALCULABLE">Revisi&oacute;</option>
+                        </select>
+                        <div class="filtre-multi" id="filtre-client-wrap">
+                            <button type="button" class="filtre-multi-btn" id="filtre-client-btn">Tots els clients &#9662;</button>
+                            <div class="filtre-multi-dropdown hidden" id="filtre-client-dropdown">
+                                <input type="text" class="filtre-multi-search" id="filtre-client-search" placeholder="Cercar client...">
+                                <div class="filtre-multi-options" id="filtre-client-options"></div>
+                                <div class="filtre-multi-footer">
+                                    <button type="button" class="filtre-multi-action" id="filtre-client-clear">Netejar</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="filtre-multi" id="filtre-serie-wrap">
+                            <button type="button" class="filtre-multi-btn" id="filtre-serie-btn">Totes les s&#232;ries &#9662;</button>
+                            <div class="filtre-multi-dropdown hidden" id="filtre-serie-dropdown">
+                                <div class="filtre-multi-options" id="filtre-serie-options"></div>
+                                <div class="filtre-multi-footer">
+                                    <button type="button" class="filtre-multi-action" id="filtre-serie-clear">Netejar</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="filtre-multi" id="filtre-magatzem-wrap">
+                            <button type="button" class="filtre-multi-btn" id="filtre-magatzem-btn">Tots els magatzems &#9662;</button>
+                            <div class="filtre-multi-dropdown hidden" id="filtre-magatzem-dropdown">
+                                <div class="filtre-multi-options" id="filtre-magatzem-options"></div>
+                                <div class="filtre-multi-footer">
+                                    <button type="button" class="filtre-multi-action" id="filtre-magatzem-clear">Netejar</button>
+                                </div>
+                            </div>
+                        </div>
+                        <select id="filtre-tipus-desc" class="filtre-select">
+                            <option value="">Tots els tipus</option>
+                            <option value="PALET">Palet</option>
+                            <option value="MANUAL">Manual</option>
+                        </select>
+                        <select id="filtre-data" class="filtre-select">
+                            <option value="">Totes les dates</option>
+                            <option value="avui" selected>Avui</option>
+                            <option value="ahir">Ahir</option>
+                            <option value="setmana">Darrera setmana</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="card-body" style="padding: 0;">
+                    <div id="ultimes-loading" class="loading" style="padding: 2rem;">
+                        <div class="spinner"></div>
+                        <p style="margin-top: 0.75rem;">Carregant comandes…</p>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table" id="ultimes-table" style="display: none;">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" data-sort-key="serie" data-sort-type="natural" tabindex="0" aria-sort="none"><span class="th-label">Sèrie/Número</span><span class="sort-indicator">▼</span></th>
+                                    <th class="sortable" data-sort-key="data" data-sort-type="date" tabindex="0" aria-sort="none"><span class="th-label">Data</span><span class="sort-indicator">▼</span></th>
+                                    <th class="sortable" data-sort-key="servir" data-sort-type="date" tabindex="0" aria-sort="none"><span class="th-label">Servir</span><span class="sort-indicator">▼</span></th>
+                                    <th class="sortable" data-sort-key="client" data-sort-type="text" tabindex="0" aria-sort="none"><span class="th-label">Nom Client</span><span class="sort-indicator">▼</span></th>
+                                    <th class="sortable" data-sort-key="dire" data-sort-type="text" tabindex="0" aria-sort="none"><span class="th-label">Dir.</span><span class="sort-indicator">▼</span></th>
+                                    <th class="sortable" data-sort-key="agent" data-sort-type="text" tabindex="0" aria-sort="none"><span class="th-label">Agent</span><span class="sort-indicator">▼</span></th>
+                                    <th class="sortable" data-sort-key="tipus_desc" data-sort-type="text" tabindex="0" aria-sort="none"><span class="th-label">Tipus Desc.</span><span class="sort-indicator">▼</span></th>
+                                    <th class="sortable num" data-sort-key="linies" data-sort-type="number" tabindex="0" aria-sort="none"><span class="th-label">Linies</span><span class="sort-indicator">▼</span></th>
+                                    <th class="sortable num" data-sort-key="unitats" data-sort-type="number" tabindex="0" aria-sort="none"><span class="th-label">Unitats</span><span class="sort-indicator">▼</span></th>
+                                    <th class="sortable" data-sort-key="estat" data-sort-type="text" tabindex="0" aria-sort="none"><span class="th-label">Estat</span><span class="sort-indicator">▼</span></th>
+                                    <th class="sortable num" data-sort-key="palets" data-sort-type="number" tabindex="0" aria-sort="none"><span class="th-label">Palets</span><span class="sort-indicator">▼</span></th>
+                                    <th class="sortable" data-sort-key="tipus_palet" data-sort-type="text" tabindex="0" aria-sort="none"><span class="th-label">Tipus Palet</span><span class="sort-indicator">▼</span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="ultimes-body">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer-info" id="table-footer" style="display:none;">
+                        <span id="table-count-text"></span>
+                        <button id="btn-veure-totes" class="btn-veure-totes" style="display:none;">Veure totes</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading-state" class="loading hidden" aria-busy="true" aria-live="polite">
+            <div class="spinner"></div>
+            <p style="margin-top: 1rem;">Calculant embalatges…</p>
+        </div>
+
+        <!-- Error / NO_CALCULABLE -->
+        <div id="error-state" class="error-state hidden" role="alert">
+            <div class="icon">&#9888;&#65039;</div>
+            <h3>No s'ha pogut calcular</h3>
+            <p id="error-message"></p>
+            <p id="error-help" style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--gray-500);"></p>
+            <button id="btn-forcar" class="btn-forcar hidden">Calcular igualment (caldr&agrave; revisi&oacute; manual)</button>
+        </div>
+
+        <!-- Result -->
+        <div id="result-state" class="hidden">
+
+            <!-- Breadcrumb -->
+            <div class="breadcrumb" id="breadcrumb">
+                <a href="#" id="bc-home">Inici</a>
+                <span class="bc-sep">&#8250;</span>
+                <span class="bc-current" id="bc-comanda">-</span>
+            </div>
+
+            <!-- Toolbar: Client + Estat + Accions -->
+            <div class="result-toolbar">
+                <span id="res-client-nom" class="result-client-nom"></span>
+                <span id="res-estat" class="estat-badge"></span>
+                <!-- <button id="btn-copiar" class="btn-copiar" title="Copiar resum al portapapers">&#128203; Copiar resum</button> -->
+                <button id="btn-print" class="toolbar-btn hidden" title="Imprimir (Ctrl+P)">&#128424; Imprimir</button>
+                <button id="btn-export-csv" class="toolbar-btn hidden" title="Exportar CSV">&#128190; CSV</button>
+                <button id="btn-sol-autoritzacio" class="toolbar-btn hidden" title="Demanar autoritzaci&oacute; (comanda &lt; 500 kg)">&#9993;&#65039; Sol&middot;licitar autoritzaci&oacute;</button>
+            </div>
+
+            <!-- Resum prominent -->
+            <div id="res-resum-prominent" class="resum-prominent hidden">
+                <div class="resum-card">
+                    <div class="resum-num" id="resum2-sacs">0</div>
+                    <div class="resum-label">Total Sacs</div>
+                    <div class="resum-detail" id="resum2-linies"></div>
+                </div>
+                <div class="resum-card card-success">
+                    <div class="resum-num" id="resum2-palets">0</div>
+                    <div class="resum-label">Total Palets</div>
+                    <div class="resum-detail" id="resum2-tipus"></div>
+                </div>
+                <div class="resum-card">
+                    <div class="resum-num" id="resum2-pes">-</div>
+                    <div class="resum-label">Pes Estimat</div>
+                    <div class="resum-detail" id="resum2-pes-detail"></div>
+                </div>
+            </div>
+
+            <!-- Avisos unificats (plegable) -->
+            <div id="avisos-unificats" class="hidden">
+                <div class="avisos-header" id="avisos-toggle">
+                    <span id="avisos-toggle-text"></span>
+                    <span class="avisos-toggle-arrow">&#9660;</span>
+                </div>
+                <div class="avisos-unificats-container hidden" id="avisos-body"></div>
+            </div>
+
+            <!-- Metadades (obertes per defecte) -->
+            <div class="card meta-compact" id="card-meta">
+                <div class="meta-compact-summary" id="meta-summary">
+                    <span class="meta-inline">
+                        <span class="meta-tag" id="res-pedi-num">-</span>
+                        <span class="meta-sep">|</span>
+                        <span id="res-cli-codi">-</span>
+                        <span class="meta-sep">|</span>
+                        Dir. <span id="res-pedi-dire">-</span>
+                        <span class="meta-sep">|</span>
+                        <span id="res-pedi-fech">-</span>
+                        <span class="meta-sep">|</span>
+                        <span id="res-data-servir"></span>
+                        <span class="meta-sep">|</span>
+                        <span id="res-tipus-desc">-</span>
+                    </span>
+                </div>
+                <div class="meta-compact-details" id="meta-details">
+                    <div class="meta-details-grid">
+                        <div class="meta-details-col">
+                            <div class="info-item">
+                                <span class="info-label">Nom Direcció</span>
+                                <span class="info-value" id="res-adr-nom">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Tipus Descàrrega</span>
+                                <span class="info-value" id="res-tipus-desc-detail">-</span>
+                            </div>
+                        </div>
+                        <div class="meta-details-col">
+                            <div class="info-item">
+                                <span class="info-label">Màxim Sacs per Pàlet</span>
+                                <span class="info-value mono" id="res-max-sacs">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Preval Direcció</span>
+                                <span class="info-value" id="res-preval">-</span>
+                            </div>
+                        </div>
+                        <div class="meta-details-col">
+                            <div class="info-item">
+                                <span class="info-label">Comanda Mínima Exc.</span>
+                                <span class="info-value mono" id="res-min-exc">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Avisos dades mestres (plegable) -->
+                    <div class="hidden" id="card-avisos-dades">
+                        <div class="meta-avisos-title" id="avisos-dades-toggle" style="cursor:pointer;">
+                            <span class="avisos-toggle-arrow" id="avisos-dades-arrow">&#9654;</span>
+                            Qualitat de Dades Mestres
+                            <span id="avisos-dades-count" style="font-weight:400;opacity:0.7;"></span>
+                        </div>
+                        <div id="res-avisos-dades" class="hidden"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tipus Palet -->
+            <div class="card hidden" id="card-tipus-palet">
+                <div class="card-header">
+                    &#127960; Tipus de Pàlet
+                </div>
+                <div class="card-body" style="padding: 0;">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Codi</th>
+                                    <th>Descripció</th>
+                                    <th>Tipus</th>
+                                    <th class="num">Quantitat</th>
+                                </tr>
+                            </thead>
+                            <tbody id="res-tipus-palet">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Resum articles comanda -->
+            <div class="card" id="card-linies">
+                <div class="card-header collapsible-header" id="linies-header" role="button" aria-expanded="false" aria-controls="linies-body" tabindex="0">
+                    <span class="arrow">&#9654;</span> Detall Comanda (Articles)
+                </div>
+                <div class="collapsible-body" id="linies-body">
+                    <div class="card-body" style="padding: 0;">
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Línia</th>
+                                        <th>Article</th>
+                                        <th>Descripció</th>
+                                        <th>TUnitat</th>
+                                        <th class="num">Unitats</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="res-linies">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Vista Gràfica Pàlets -->
+            <div class="card hidden" id="card-visual-palets">
+                <div class="card-header collapsible-header" id="visual-palets-header" role="button" aria-expanded="false" aria-controls="visual-palets-body" tabindex="0">
+                    <span class="arrow">&#9654;</span> Vista Gràfica de Pàlets
+                </div>
+                <div class="collapsible-body" id="visual-palets-body">
+                    <div class="card-body">
+                        <div class="palets-visual-grid" id="res-visual-palets">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Composició Pàlets -->
+            <div class="card hidden" id="card-embalatges">
+                <div class="card-header collapsible-header" id="embalatges-header" role="button" aria-expanded="false" aria-controls="embalatges-body" tabindex="0">
+                    <span class="arrow">&#9654;</span> Composició de Pàlets
+                </div>
+                <div class="collapsible-body" id="embalatges-body">
+                    <div class="card-body" style="padding: 0;">
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th class="num">Pàlet</th>
+                                        <th>Contingut</th>
+                                        <th class="num">Sacs</th>
+                                        <th class="num">Pes</th>
+                                        <th class="num">Base</th>
+                                        <th class="num">Max</th>
+                                        <th>Tipus Palet</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="res-embalatges">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Missatges (mantingut per compatibilitat, omplert per JS) -->
+            <div class="card hidden" id="card-missatges">
+                <div class="card-header">
+                    &#9888;&#65039; Missatges
+                </div>
+                <div class="card-body" id="res-missatges">
+                </div>
+            </div>
+
+            <!-- Traçabilitat -->
+            <div class="card">
+                <div class="card-header collapsible-header" id="trace-header" role="button" aria-expanded="false" aria-controls="trace-body" tabindex="0">
+                    <span class="arrow">&#9654;</span> Traçabilitat
+                </div>
+                <div class="collapsible-body" id="trace-body">
+                    <div class="card-body" style="padding: 0.5rem 1rem;">
+                        <ul class="trace-list" id="res-trazabilitat">
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Shortcuts modal -->
+    <div id="shortcuts-modal" class="shortcuts-modal hidden">
+        <h4>Dreceres de teclat</h4>
+        <div class="shortcut-row"><span>Calcular comanda</span><kbd>Enter</kbd></div>
+        <div class="shortcut-row"><span>Tornar a inici</span><kbd>Esc</kbd></div>
+        <div class="shortcut-row"><span>Focus cerca</span><kbd>Ctrl+K</kbd></div>
+        <div class="shortcut-row"><span>Imprimir resultat</span><kbd>Ctrl+P</kbd></div>
+        <div class="shortcut-row"><span>Mode per lots</span><kbd>Ctrl+B</kbd></div>
+        <div class="shortcut-row"><span>Mostrar/amagar dreceres</span><kbd>?</kbd></div>
+    </div>
+
+    <!-- Modal Sol&middot;licitar autoritzaci&oacute; (comandes &lt; 500 kg) -->
+    <div id="modal-autoritzacio" class="modal-overlay hidden">
+        <div class="modal-panel">
+            <div class="modal-header">
+                <h3>&#9993;&#65039; Previsualitzaci&oacute; correu d&apos;autoritzaci&oacute;</h3>
+                <button class="modal-close" id="modal-close" aria-label="Tancar">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="modal-mode-banner" class="modal-banner hidden"></div>
+                <div class="modal-field"><label>De:</label> <span id="modal-mail-from">farinera@agrienergia.com</span></div>
+                <div class="modal-field modal-field-editable">
+                    <label for="modal-mail-to">Per a:</label>
+                    <input type="text" id="modal-mail-to" class="modal-input" placeholder="adreca@domini.com" autocomplete="off">
+                </div>
+                <div class="modal-field modal-field-editable" id="modal-mail-cc-row">
+                    <label for="modal-mail-cc">CC:</label>
+                    <input type="text" id="modal-mail-cc" class="modal-input" placeholder="cc1@domini.com, cc2@domini.com" autocomplete="off">
+                </div>
+                <div class="modal-field"><label>Assumpte:</label> <span id="modal-mail-subject" class="modal-subject"></span></div>
+                <div class="modal-field-block">
+                    <label>Cos:</label>
+                    <div id="modal-mail-body" class="mail-preview"></div>
+                </div>
+                <div id="modal-error" class="modal-error hidden"></div>
+            </div>
+            <div class="modal-actions">
+                <button id="modal-cancel" class="toolbar-btn">Cancel&middot;lar</button>
+                <button id="modal-send" class="toolbar-btn toolbar-btn-primary">Enviar correu</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js?v=47"></script>
+</body>
+</html>

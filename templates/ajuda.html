@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ajuda - Motor de Preparació de Comandes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
+    <link rel="stylesheet" href="/static/css/style.css?v=17">
+    <style>
+        .help-content {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
+        .help-content h2 {
+            color: var(--primary-dark);
+            font-size: 1.3rem;
+            margin: 2rem 0 0.75rem;
+            padding-bottom: 0.4rem;
+            border-bottom: 2px solid var(--primary-light);
+        }
+        .help-content h3 {
+            color: var(--primary);
+            font-size: 1.05rem;
+            margin: 1.25rem 0 0.5rem;
+        }
+        .help-content p, .help-content li {
+            font-size: 0.92rem;
+            line-height: 1.7;
+            color: var(--gray-700);
+        }
+        .help-content ul, .help-content ol {
+            padding-left: 1.5rem;
+        }
+        .help-content li {
+            margin-bottom: 0.3rem;
+        }
+        .help-content code {
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--gray-100);
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.85rem;
+            color: var(--primary-dark);
+        }
+        .help-toc {
+            background: var(--primary-light);
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .help-toc h3 {
+            margin-top: 0;
+            color: var(--primary-dark);
+        }
+        .help-toc ol {
+            margin: 0;
+            padding-left: 1.25rem;
+        }
+        .help-toc a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+        .help-toc a:hover {
+            text-decoration: underline;
+        }
+        .help-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.75rem 0;
+            font-size: 0.88rem;
+        }
+        .help-table th, .help-table td {
+            border: 1px solid var(--gray-200);
+            padding: 0.5rem 0.75rem;
+            text-align: left;
+        }
+        .help-table th {
+            background: var(--gray-100);
+            font-weight: 600;
+            color: var(--gray-700);
+        }
+        .help-table td {
+            color: var(--gray-700);
+        }
+        .help-badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+        .help-badge-ok { background: var(--success-bg); color: var(--success); }
+        .help-badge-warn { background: var(--warning-bg); color: var(--warning); }
+        .help-badge-err { background: var(--danger-bg); color: var(--danger); }
+        .help-img-box {
+            background: var(--gray-50);
+            border: 1px solid var(--gray-200);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 0.75rem 0;
+            font-size: 0.85rem;
+            color: var(--gray-500);
+        }
+        .help-tip {
+            background: var(--primary-light);
+            border-left: 3px solid var(--primary);
+            padding: 0.6rem 1rem;
+            margin: 0.75rem 0;
+            border-radius: 0 6px 6px 0;
+            font-size: 0.88rem;
+        }
+        .help-tip strong {
+            color: var(--primary-dark);
+        }
+        /* --- Mockups il·lustratius --- */
+        .mockup {
+            border: 1px solid var(--gray-200);
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 1rem 0;
+            font-size: 0.8rem;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        }
+        .mockup-header {
+            background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+            color: white;
+            padding: 0.6rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .mockup-header h4 { margin: 0; font-size: 0.85rem; }
+        .mockup-header small { opacity: 0.7; font-size: 0.72rem; }
+        .mockup-search {
+            background: var(--gray-100);
+            border-bottom: 1px solid var(--gray-200);
+            padding: 0.5rem 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .mockup-search label { font-weight: 600; font-size: 0.78rem; color: var(--gray-700); }
+        .mockup-input {
+            border: 1px solid var(--gray-300);
+            border-radius: 4px;
+            padding: 0.3rem 0.6rem;
+            font-size: 0.78rem;
+            color: var(--gray-500);
+            background: var(--gray-100);
+            width: 160px;
+        }
+        .mockup-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 0.3rem 0.8rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .mockup-btn-outline {
+            background: var(--gray-100);
+            color: var(--gray-700);
+            border: 1px solid var(--gray-200);
+            border-radius: 4px;
+            padding: 0.3rem 0.7rem;
+            font-size: 0.75rem;
+        }
+        .mockup-body {
+            background: var(--gray-50);
+            padding: 0.75rem 1rem;
+        }
+        .mockup-card {
+            background: var(--gray-100);
+            border: 1px solid var(--gray-200);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 0.6rem;
+        }
+        .mockup-card-head {
+            background: var(--gray-100);
+            padding: 0.4rem 0.7rem;
+            font-weight: 600;
+            font-size: 0.78rem;
+            color: var(--gray-700);
+            border-bottom: 1px solid var(--gray-200);
+        }
+        .mockup-card-head-warn {
+            background: var(--warning-bg);
+            color: var(--warning);
+        }
+        .mockup-card-body {
+            padding: 0.5rem 0.7rem;
+            font-size: 0.76rem;
+            color: var(--gray-700);
+        }
+        .mockup-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.74rem;
+        }
+        .mockup-table th {
+            background: var(--gray-50);
+            text-align: left;
+            padding: 0.3rem 0.5rem;
+            border-bottom: 1px solid var(--gray-200);
+            font-weight: 600;
+            color: var(--gray-500);
+        }
+        .mockup-table td {
+            padding: 0.3rem 0.5rem;
+            border-bottom: 1px solid var(--gray-100);
+            color: var(--gray-700);
+        }
+        .mockup-table tr:hover td { background: var(--primary-light); }
+        .mockup-badge-ok { background: var(--success-bg); color: var(--success); padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.68rem; font-weight: 600; }
+        .mockup-badge-warn { background: var(--warning-bg); color: var(--warning); padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.68rem; font-weight: 600; }
+        .mockup-badge-err { background: var(--danger-bg); color: var(--danger); padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.68rem; font-weight: 600; }
+        .mockup-estat { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.8rem; margin-bottom: 0.5rem; }
+        .mockup-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-bottom: 0.6rem; }
+        .mockup-info { display: flex; justify-content: space-between; padding: 0.15rem 0; font-size: 0.74rem; }
+        .mockup-info .lbl { color: var(--gray-500); }
+        .mockup-info .val { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; }
+        .mockup-resum { display: flex; gap: 0.6rem; margin-bottom: 0.6rem; }
+        .mockup-resum-box { background: var(--gray-100); border: 1px solid var(--gray-200); border-radius: 6px; padding: 0.5rem 1rem; text-align: center; flex: 1; }
+        .mockup-resum-num { font-size: 1.2rem; font-weight: 800; color: var(--primary-dark); }
+        .mockup-resum-lbl { font-size: 0.68rem; color: var(--gray-500); }
+        .mockup-filters { display: flex; gap: 0.4rem; font-size: 0.72rem; }
+        .mockup-filter-input { border: 1px solid var(--gray-200); border-radius: 3px; padding: 0.2rem 0.4rem; font-size: 0.7rem; color: var(--gray-500); width: 120px; }
+        .mockup-filter-select { border: 1px solid var(--gray-200); border-radius: 3px; padding: 0.2rem 0.3rem; font-size: 0.7rem; color: var(--gray-500); }
+        .mockup-palet-vis {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 100px;
+            max-width: 120px;
+        }
+        .mockup-palet-title { font-weight: 700; font-size: 0.72rem; color: var(--gray-700); }
+        .mockup-palet-sacs { font-size: 0.68rem; color: var(--gray-500); margin-bottom: 0.2rem; }
+        .mockup-palet-stack { width: 100%; display: flex; flex-direction: column-reverse; gap: 1px; }
+        .mockup-palet-layer {
+            padding: 0.15rem 0.3rem;
+            font-size: 0.6rem;
+            font-weight: 600;
+            color: white;
+            text-align: center;
+            border-radius: 2px;
+        }
+        .mockup-palet-base { height: 5px; background: var(--gray-700); border-radius: 0 0 3px 3px; width: 110%; margin: 0 -5%; }
+        .mockup-palet-tipus { font-size: 0.62rem; color: var(--gray-500); margin-top: 0.15rem; }
+        .mockup-pisos-split { display: flex; gap: 0.6rem; background: var(--gray-50); border-left: 2px solid var(--primary); padding: 0.4rem 0.6rem; margin: 0.3rem 0; }
+        .mockup-pisos-split .pisos-text { flex: 1; font-size: 0.72rem; }
+        .mockup-pisos-split .pisos-vis { flex: 0 0 auto; display: flex; align-items: center; }
+        .mockup-pis-line { padding: 0.1rem 0; border-bottom: 1px dashed var(--gray-200); font-size: 0.72rem; }
+        .mockup-pis-num { font-weight: 700; color: var(--primary); margin-right: 0.3rem; }
+        .mockup-legend { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.4rem; font-size: 0.68rem; }
+        .mockup-legend-item { display: flex; align-items: center; gap: 0.2rem; }
+        .mockup-legend-dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+        .mockup-trace { font-size: 0.72rem; color: var(--gray-500); list-style: none; padding: 0; }
+        .mockup-trace li { padding: 0.15rem 0; border-bottom: 1px solid var(--gray-100); }
+        .mockup-arrow { font-size: 0.65rem; color: var(--gray-500); margin-right: 0.3rem; }
+        .mockup-callout {
+            position: relative;
+            border: 2px solid #e53e3e;
+            border-radius: 6px;
+            padding: 2px;
+            margin: 0.5rem 0;
+        }
+        .mockup-callout-label {
+            position: absolute;
+            top: -10px;
+            left: 10px;
+            background: #e53e3e;
+            color: white;
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 0 0.4rem;
+            border-radius: 3px;
+        }
+        .mc1 { background: #4299e1; }
+        .mc2 { background: #48bb78; }
+        .mc3 { background: #ed8936; }
+        .mc4 { background: #9f7aea; }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header class="app-header">
+        <div style="max-width: 1400px; margin: 0 auto; padding: 0 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h1>Ajuda</h1>
+                <p class="subtitle">Manual d'usuari del Motor de Preparació de Comandes</p>
+            </div>
+            <div style="display:flex;align-items:center;gap:1rem;">
+                <button id="btn-dark-mode" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;border-radius:6px;padding:0.3rem 0.6rem;cursor:pointer;font-size:1rem;" title="Canviar mode clar/fosc">&#9790;</button>
+                <a href="/" style="color: white; text-decoration: none; font-size: 0.9rem; opacity: 0.9; display: flex; align-items: center; gap: 0.4rem;">
+                    &#8592; Tornar a l'aplicació
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <div class="help-content">
+
+        <!-- Taula de continguts -->
+        <div class="help-toc">
+            <h3>Contingut</h3>
+            <ol>
+                <li><a href="#que-es">Què és aquesta aplicació?</a></li>
+                <li><a href="#pantalla-principal">Pantalla principal</a></li>
+                <li><a href="#cercar-comanda">Cercar i calcular una comanda</a></li>
+                <li><a href="#resultats">Entendre els resultats</a></li>
+                <li><a href="#estats">Estats de la comanda</a></li>
+                <li><a href="#seccions">Seccions del resultat</a></li>
+                <li><a href="#regles">Regles de càlcul (RF1-RF13)</a></li>
+                <li><a href="#tipus-descarrega">Tipus de descàrrega</a></li>
+                <li><a href="#qualitat-dades">Qualitat de dades mestres</a></li>
+                <li><a href="#forcar">Forçar un càlcul</a></li>
+                <li><a href="#autoritzacio">Sol·licitud d'autorització (comandes &lt; 500 kg)</a></li>
+                <li><a href="#glossari">Glossari</a></li>
+                <li><a href="#admin">Administraci&oacute;</a></li>
+            </ol>
+        </div>
+
+        <!-- 1. Què és -->
+        <h2 id="que-es">1. Què és aquesta aplicació?</h2>
+        <p>
+            El <strong>Motor de Preparació de Comandes de Venda</strong> és una eina que calcula
+            automàticament com s'han d'embalar els sacs d'una comanda de venda en palets.
+        </p>
+        <p>
+            A partir d'un número de comanda, l'aplicació consulta la base de dades,
+            aplica les regles logístiques configurades i genera una proposta d'embalatge
+            detallada, explicant cada decisió presa.
+        </p>
+        <p>L'objectiu és:</p>
+        <ul>
+            <li>Eliminar decisions manuals i subjectivitat</li>
+            <li>Estandarditzar el procés d'embalatge</li>
+            <li>Evitar errors i garantir resultats reproduïbles</li>
+            <li>Proporcionar traçabilitat completa de cada decisió</li>
+        </ul>
+
+        <!-- 2. Pantalla principal -->
+        <h2 id="pantalla-principal">2. Pantalla principal</h2>
+        <p>
+            En obrir l'aplicació es mostra la llista d'<strong>Últimes Comandes</strong>
+            processades recentment. Aquesta taula mostra:
+        </p>
+
+        <!-- MOCKUP: Pantalla principal -->
+        <div class="mockup">
+            <div class="mockup-header">
+                <div>
+                    <h4>Motor de Preparació de Comandes de Venda</h4>
+                    <small>Càlcul automàtic d'embalatges</small>
+                </div>
+                <div style="display:flex;align-items:center;gap:0.5rem;">
+                    <span style="border:1px solid rgba(255,255,255,0.3);padding:0.15rem 0.4rem;border-radius:4px;font-size:0.8rem;">&#9790;</span>
+                    <span style="border:1px solid rgba(255,255,255,0.5);padding:0.2rem 0.5rem;border-radius:4px;font-size:0.72rem;">? Ajuda</span>
+                </div>
+            </div>
+            <div class="mockup-search">
+                <label>Comanda</label>
+                <span class="mockup-input">Sèrie/Número (ex: 01/0002456)</span>
+                <span class="mockup-btn">Calcular</span>
+            </div>
+            <div class="mockup-body">
+                <div class="mockup-card">
+                    <div class="mockup-card-head" style="display:flex;justify-content:space-between;align-items:center;">
+                        <span>Últimes Comandes</span>
+                        <div class="mockup-filters">
+                            <span class="mockup-filter-input">Cercar client, article...</span>
+                            <span class="mockup-filter-select">Tots els clients &#9662;</span>
+                            <span class="mockup-filter-select">Tots els magatzems &#9662;</span>
+                            <span class="mockup-filter-select">Tots els estats &#9662;</span>
+                            <span class="mockup-filter-select">Tots els tipus &#9662;</span>
+                            <span class="mockup-filter-select">Totes les dates &#9662;</span>
+                        </div>
+                    </div>
+                    <table class="mockup-table">
+                        <thead>
+                            <tr><th>Sèrie/Número</th><th>Data</th><th>Nom Client</th><th>Dir.</th><th>Tipus Desc.</th><th>Unitats</th><th>Estat</th><th>Palets</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td style="font-family:monospace">01/0002456</td><td>28/03/2026</td><td>FORN CAN PERE</td><td>001</td><td>PALET</td><td>242</td><td><span class="mockup-badge-ok">CALCULAT</span></td><td>6</td></tr>
+                            <tr><td style="font-family:monospace">01/0002457</td><td>28/03/2026</td><td>PANIFICADORA SUD</td><td>002</td><td>MANUAL</td><td>51</td><td><span class="mockup-badge-warn">AMB AVISOS</span></td><td>2</td></tr>
+                            <tr><td style="font-family:monospace">01/0002458</td><td>27/03/2026</td><td>PASTISSERIA VILA</td><td>001</td><td>PALET</td><td>15</td><td><span class="mockup-badge-err">NO CALCULABLE</span></td><td>-</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <ul>
+            <li><strong>Sèrie/Número</strong> de la comanda</li>
+            <li><strong>Data</strong> de la comanda</li>
+            <li><strong>Nom Client</strong></li>
+            <li><strong>Dir.</strong> — codi de la direcció d'enviament</li>
+            <li><strong>Tipus Desc.</strong> — tipus de descàrrega (PALET o MANUAL)</li>
+            <li><strong>Línies</strong> — nombre de línies de la comanda</li>
+            <li><strong>Unitats</strong> — total de sacs</li>
+            <li><strong>Estat</strong> — resultat del càlcul</li>
+            <li><strong>Palets</strong> — nombre de palets proposats</li>
+            <li><strong>Tipus Palet</strong> — tipus de palet utilitzat</li>
+        </ul>
+
+        <h3>Filtres</h3>
+        <p>
+            A la part superior de la llista hi ha filtres per cercar ràpidament:
+        </p>
+        <ul>
+            <li><strong>Cercar client, article...</strong> — filtra per text lliure (client, article, codi...)</li>
+            <li><strong>Tots els clients</strong> — desplegable multi-selecci&oacute; amb checkboxes per filtrar per un o m&eacute;s clients</li>
+            <li><strong>Tots els magatzems</strong> — desplegable multi-selecci&oacute; per filtrar per un o m&eacute;s magatzems (01-F&agrave;brica, 04-Salzadella, 05-Mallorca, 07-Vic)</li>
+            <li><strong>Tots els estats</strong> — filtra per estat (Calculat, Amb avisos, No calculable)</li>
+            <li><strong>Tots els tipus</strong> — filtra per tipus de descàrrega (Palet, Manual)</li>
+            <li><strong>Totes les dates</strong> — filtra per data (Avui, Ahir, Darrera setmana)</li>
+        </ul>
+        <div class="help-tip">
+            <strong>Consell:</strong> Els filtres de clients i magatzems permeten selecci&oacute; m&uacute;ltiple: pots marcar v&agrave;ries opcions alhora. El bot&oacute; mostra quantes opcions tens seleccionades.
+        </div>
+
+        <h3>Preview de palets</h3>
+        <p>
+            A la capçalera de l'aplicació hi ha un botó <strong>📦</strong> que activa o desactiva
+            la <strong>previsualització de palets</strong>. Quan està activat:
+        </p>
+        <ul>
+            <li>En passar el ratolí per sobre d'una fila de la llista de comandes, apareix un
+                <strong>tooltip</strong> amb la distribució visual dels palets d'aquella comanda.</li>
+            <li>Cada palet es mostra com una columna amb les capes acolorides per article.</li>
+            <li>Permet fer una revisió ràpida sense haver de calcular cada comanda individualment.</li>
+        </ul>
+        <div class="help-tip">
+            <strong>Consell:</strong> L'estat del preview es recorda entre sessions (es guarda al navegador).
+            El botó es mostra ressaltat quan el preview està activat.
+        </div>
+
+        <div class="help-tip">
+            <strong>Consell:</strong> Fes clic en qualsevol fila de la taula per calcular directament aquella comanda.
+        </div>
+
+        <!-- 3. Cercar comanda -->
+        <h2 id="cercar-comanda">3. Cercar i calcular una comanda</h2>
+        <p>
+            Per calcular l'embalatge d'una comanda, escriu el número de comanda al camp de cerca
+            i prem <strong>Calcular</strong> (o la tecla Enter).
+        </p>
+        <p>Formats acceptats:</p>
+        <ul>
+            <li><code>Sèrie/Número</code> — per exemple: <code>01/0002456</code> o <code>V/0002456</code></li>
+            <li><code>Número intern</code> — el número intern del sistema (pedi_num)</li>
+        </ul>
+
+        <!-- MOCKUP: Barra de cerca -->
+        <div class="mockup" style="overflow:visible;">
+            <div class="mockup-search" style="gap:0.6rem;">
+                <label>Comanda</label>
+                <span class="mockup-input" style="color:var(--gray-900);font-family:monospace;">01/0002456</span>
+                <span class="mockup-btn">Calcular</span>
+                <span class="mockup-btn-outline">&#8962; Inici</span>
+            </div>
+        </div>
+
+        <div class="help-tip">
+            <strong>Consell:</strong> El botó <strong>Inici</strong> (&#8962;) apareix quan hi ha resultats
+            i permet tornar a la llista d'últimes comandes.
+        </div>
+
+        <!-- 4. Entendre resultats -->
+        <h2 id="resultats">4. Entendre els resultats</h2>
+        <p>
+            Un cop calculada la comanda, es mostra el resultat organitzat per prioritat d'ús:
+        </p>
+        <ol>
+            <li><strong>Breadcrumb</strong> — navegació Inici &rsaquo; Comanda per tornar a la llista</li>
+            <li><strong>Toolbar</strong> — nom del client i estat del càlcul</li>
+            <li><strong>Resum sticky</strong> — total sacs, palets i pes. Queda fixat a la part superior en fer scroll</li>
+            <li><strong>Avisos</strong> — si hi ha incidències, barra plegable amb el resum. Clic per desplegar el detall</li>
+            <li><strong>Metadades</strong> — línia compacta amb info de la comanda i detalls de la direcció</li>
+            <li><strong>Composició / Vista Gràfica / Articles / Traçabilitat</strong> — seccions col&middot;lapsables</li>
+        </ol>
+
+        <!-- MOCKUP: Vista general del resultat -->
+        <div class="mockup">
+            <div class="mockup-header">
+                <div><h4>Motor de Preparació de Comandes de Venda</h4></div>
+                <div style="display:flex;align-items:center;gap:0.5rem;">
+                    <span style="border:1px solid rgba(255,255,255,0.3);padding:0.15rem 0.4rem;border-radius:4px;font-size:0.8rem;">&#9790;</span>
+                    <span style="font-size:0.72rem;opacity:0.8">? Ajuda</span>
+                </div>
+            </div>
+            <div class="mockup-search">
+                <label>Comanda</label>
+                <span class="mockup-input" style="color:var(--gray-900);font-family:monospace;">01/0002456</span>
+                <span class="mockup-btn">Calcular</span>
+                <span class="mockup-btn-outline">&#8962; Inici</span>
+            </div>
+            <div class="mockup-body">
+                <!-- Breadcrumb -->
+                <div style="font-size:0.72rem;color:var(--gray-500);margin-bottom:0.4rem;">
+                    <a href="#" style="color:var(--primary);text-decoration:none;">Inici</a>
+                    <span style="color:var(--gray-300);"> &rsaquo; </span>
+                    <span style="font-weight:600;color:var(--gray-700);font-family:monospace;">01/0002456</span>
+                </div>
+
+                <!-- Toolbar: Client + Estat + Accions -->
+                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+                    <span style="font-weight:700;font-size:0.85rem;color:var(--gray-700);">FORN CAN PERE</span>
+                    <div class="mockup-estat" style="background:var(--success-bg);color:var(--success);">CALCULAT</div>
+                </div>
+
+                <!-- Resum sticky -->
+                <div style="background:var(--gray-100);border:1px solid var(--gray-200);border-radius:8px;padding:0.5rem;margin-bottom:0.5rem;position:relative;">
+                    <div style="position:absolute;top:-8px;left:10px;background:var(--primary);color:white;font-size:0.55rem;padding:0 0.4rem;border-radius:3px;font-weight:600;">STICKY — queda fixat en fer scroll</div>
+                    <div class="mockup-resum" style="margin:0;">
+                        <div class="mockup-resum-box" style="margin:0;"><div class="mockup-resum-num">242</div><div class="mockup-resum-lbl">Total Sacs</div></div>
+                        <div class="mockup-resum-box" style="margin:0;"><div class="mockup-resum-num">6</div><div class="mockup-resum-lbl">Total Palets</div></div>
+                        <div class="mockup-resum-box" style="margin:0;"><div class="mockup-resum-num" style="font-size:1rem;">6.050</div><div class="mockup-resum-lbl">Pes Estimat (kg)</div></div>
+                    </div>
+                </div>
+
+                <!-- Avisos plegable (exemple amb avisos) -->
+                <div style="background:var(--warning-bg);border:1px solid var(--warning);border-radius:6px;padding:0.35rem 0.7rem;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.4rem;font-size:0.75rem;cursor:pointer;">
+                    <span style="font-size:0.65rem;transform:rotate(-90deg);display:inline-block;">&#9660;</span>
+                    <span style="font-weight:600;color:var(--warning);">&#9888; 1 Avís</span>
+                    <span style="color:var(--gray-500);font-size:0.68rem;margin-left:0.5rem;">Clic per desplegar</span>
+                </div>
+
+                <!-- Metadades compactes -->
+                <div class="mockup-card" style="margin-bottom:0.5rem;">
+                    <div class="mockup-card-body" style="padding:0.35rem 0.6rem;font-size:0.72rem;font-family:monospace;display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+                        <strong style="color:var(--primary-dark);">01/0002456</strong>
+                        <span style="color:var(--gray-300);">|</span> 000123
+                        <span style="color:var(--gray-300);">|</span> Dir. 001
+                        <span style="color:var(--gray-300);">|</span> 28/03/2026
+                        <span style="color:var(--gray-300);">|</span> PALET
+                    </div>
+                    <div style="padding:0.3rem 0.6rem;border-top:1px solid var(--gray-200);font-size:0.68rem;color:var(--gray-500);">
+                        <span class="lbl">Nom:</span> FORN CAN PERE &middot;
+                        <span class="lbl">Base:</span> 5 &middot;
+                        <span class="lbl">Max Sacs:</span> 45 &middot;
+                        <span class="lbl">Preval:</span> No
+                    </div>
+                    <div style="padding:0.3rem 0.6rem;border-top:1px solid var(--gray-200);font-size:0.68rem;color:var(--gray-500);cursor:pointer;">
+                        <span style="font-size:0.6rem;">&#9654;</span> Qualitat de Dades Mestres <span style="opacity:0.6;">(2 avisos)</span>
+                    </div>
+                </div>
+
+                <!-- Tipus palet -->
+                <div class="mockup-card">
+                    <div class="mockup-card-head">&#127960; Tipus de Pàlet</div>
+                    <table class="mockup-table">
+                        <thead><tr><th>Codi</th><th>Descripció</th><th>Tipus</th><th>Quantitat</th></tr></thead>
+                        <tbody>
+                            <tr><td style="font-family:monospace">01030</td><td>PALET FUSTA EUROPEU 120X80</td><td>Físic</td><td><strong>6</strong></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Composició -->
+                <div class="mockup-card">
+                    <div class="mockup-card-head"><span class="mockup-arrow">&#9660;</span> Composició de Pàlets</div>
+                    <table class="mockup-table">
+                        <thead><tr><th>Pàlet</th><th>Contingut</th><th>Sacs</th><th>Base</th><th>Max</th><th>Tipus Palet</th></tr></thead>
+                        <tbody>
+                            <tr style="background:var(--primary-light);"><td><strong>1</strong></td><td><span style="font-family:monospace;font-size:0.68rem">33851</span> FARINA GRAN FORCA <strong>(42)</strong></td><td><strong>42</strong></td><td>5</td><td>45</td><td><span style="font-family:monospace;font-size:0.68rem">01030</span> PALET FUSTA</td></tr>
+                            <tr><td colspan="6">
+                                <div class="mockup-pisos-split">
+                                    <div class="pisos-text">
+                                        <div class="mockup-pis-line"><span class="mockup-pis-num">Pis 9</span> 33851 FARINA GRAN FORCA <strong>(2)</strong></div>
+                                        <div class="mockup-pis-line"><span class="mockup-pis-num">Pis 8</span> 33851 FARINA GRAN FORCA <strong>(5)</strong></div>
+                                        <div class="mockup-pis-line" style="color:var(--gray-400);">... (pisos 2-7 iguals) ...</div>
+                                        <div class="mockup-pis-line"><span class="mockup-pis-num">Pis 1</span> 33851 FARINA GRAN FORCA <strong>(5)</strong></div>
+                                    </div>
+                                    <div class="pisos-vis">
+                                        <div class="mockup-palet-vis">
+                                            <div class="mockup-palet-title">Palet 1</div>
+                                            <div class="mockup-palet-sacs">42 sacs</div>
+                                            <div class="mockup-palet-stack">
+                                                <div class="mockup-palet-layer mc1">33851 (5)</div>
+                                                <div class="mockup-palet-layer mc1">33851 (5)</div>
+                                                <div class="mockup-palet-layer mc1">33851 (5)</div>
+                                                <div class="mockup-palet-layer mc1" style="opacity:0.7">33851 (2)</div>
+                                            </div>
+                                            <div class="mockup-palet-base"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td></tr>
+                            <tr><td><strong>2</strong></td><td><span style="font-family:monospace;font-size:0.68rem">30450</span> FARINA INTEGRAL <strong>(40)</strong> + <span style="font-family:monospace;font-size:0.68rem">30860</span> FARINA PIRINEUS <strong>(5)</strong> <span class="mockup-badge-warn" style="font-size:0.6rem">MIXT</span></td><td><strong>45</strong></td><td>5</td><td>45</td><td><span style="font-family:monospace;font-size:0.68rem">01030</span> PALET FUSTA</td></tr>
+                            <tr><td><strong>3</strong></td><td><span style="font-family:monospace;font-size:0.68rem">30860</span> FARINA PIRINEUS <strong>(45)</strong></td><td><strong>45</strong></td><td>5</td><td>45</td><td><span style="font-family:monospace;font-size:0.68rem">01030</span> PALET FUSTA</td></tr>
+                            <tr style="color:var(--gray-400)"><td colspan="6" style="text-align:center;font-size:0.7rem">... (més palets) ...</td></tr>
+                            <tr style="font-weight:600"><td>TOTAL</td><td>6 palet(s)</td><td><strong>242</strong></td><td colspan="3"></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Vista gràfica -->
+                <div class="mockup-card">
+                    <div class="mockup-card-head"><span class="mockup-arrow">&#9654;</span> Vista Gràfica de Pàlets</div>
+                </div>
+
+                <!-- Detall comanda -->
+                <div class="mockup-card">
+                    <div class="mockup-card-head"><span class="mockup-arrow">&#9654;</span> Detall Comanda (Articles)</div>
+                </div>
+
+                <!-- Traçabilitat -->
+                <div class="mockup-card">
+                    <div class="mockup-card-head"><span class="mockup-arrow">&#9654;</span> Traçabilitat</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5. Estats -->
+        <h2 id="estats">5. Estats de la comanda</h2>
+        <table class="help-table">
+            <thead>
+                <tr>
+                    <th>Estat</th>
+                    <th>Significat</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="help-badge help-badge-ok">CALCULAT</span></td>
+                    <td>
+                        La comanda s'ha calculat correctament sense cap incidència.
+                        La proposta d'embalatge és vàlida.
+                    </td>
+                </tr>
+                <tr>
+                    <td><span class="help-badge help-badge-warn">CALCULAT AMB AVISOS</span></td>
+                    <td>
+                        La comanda s'ha calculat però hi ha avisos que cal revisar
+                        (per exemple, la comanda no arriba al mínim o hi ha dades mestres incompletes).
+                        La proposta és vàlida però pot requerir atenció.
+                    </td>
+                </tr>
+                <tr>
+                    <td><span class="help-badge help-badge-warn">SOTA M&Iacute;NIM</span></td>
+                    <td>
+                        La comanda no arriba al m&iacute;nim de sacs requerit (RF2), per&ograve; el c&agrave;lcul
+                        d'embalatges s'ha fet igualment per mostrar la proposta. A la llista
+                        d'&uacute;ltimes comandes es mostra en color groc amb els palets i tipus de palet.
+                    </td>
+                </tr>
+                <tr>
+                    <td><span class="help-badge help-badge-err">REVISI&Oacute;</span></td>
+                    <td>
+                        La comanda no es pot calcular autom&agrave;ticament. Hi ha condicions que
+                        impedeixen generar una proposta (per exemple, articles a granel,
+                        articles especials sense condicions v&agrave;lides). Cal revisi&oacute; manual.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- 6. Seccions -->
+        <h2 id="seccions">6. Seccions del resultat</h2>
+
+        <h3>Metadades de la comanda</h3>
+        <p>
+            A la part superior del resultat es mostra una <strong>línia compacta</strong> amb la informació essencial:
+            Sèrie/Número, codi client, direcció, data i tipus de descàrrega. Sota aquesta línia
+            es despleguen els <strong>detalls de la direcció d'enviament</strong>:
+        </p>
+        <ul>
+            <li><strong>Nom Direcció</strong> — nom de la direcció de lliurament</li>
+            <li><strong>Tipus Descàrrega</strong> — PALET (el client rep palets sencers)
+                o MANUAL (es despaletitza al punt de lliurament)</li>
+            <li><strong>Màxim Sacs per Pàlet</strong> — límit de sacs per palet configurat per aquesta direcció</li>
+            <li><strong>Preval Direcció</strong> — si la configuració de la direcció té prioritat sobre la de l'article</li>
+            <li><strong>Comanda Mínima Exc.</strong> — excepció al mínim de sacs per comanda per aquesta direcció</li>
+        </ul>
+
+        <h3>Avisos unificats</h3>
+        <p>
+            Quan hi ha incidències, apareix una <strong>barra d'avisos plegable</strong> just sota del resum.
+            Fes clic per desplegar-la i veure el detall. Els avisos es classifiquen en:
+        </p>
+        <ul>
+            <li><span class="help-badge help-badge-err" style="font-size:0.7rem">Bloquejant</span>
+                — condicions que impedeixen el càlcul (missatges STOP). Cal ajustar la comanda o forçar el càlcul.</li>
+            <li><span class="help-badge help-badge-warn" style="font-size:0.7rem">Avís</span>
+                — advertències no bloquejants. La comanda es pot processar, però cal revisar.</li>
+            <li><span class="help-badge" style="font-size:0.7rem;background:var(--primary-light);color:var(--primary)">Info</span>
+                — avisos de qualitat de dades mestres (dins els detalls de la direcció). Camps que manquen o poden millorar-se.</li>
+        </ul>
+
+        <h3>Resum Totals (sticky)</h3>
+        <p>
+            Mostra el <strong>Total Sacs</strong>, el <strong>Total Palets</strong> i el <strong>Pes Estimat</strong>.
+            Aquesta secció queda <strong>fixada a la part superior</strong> de la pantalla en fer scroll,
+            perquè sempre tinguis la informació clau visible mentre revises els detalls.
+        </p>
+
+        <h3>&#127960; Tipus de Pàlet</h3>
+        <p>
+            Resum dels tipus de palet necessaris per la comanda, amb la quantitat de cadascun
+            i si és un palet <strong>físic</strong> (s'entrega al client) o
+            <strong>lògic</strong> (base de palet interna, no s'entrega).
+        </p>
+
+        <h3>Composició de Pàlets</h3>
+        <p>
+            Taula detallada de cada palet proposat:
+        </p>
+        <ul>
+            <li><strong>Pàlet</strong> — número seqüencial</li>
+            <li><strong>Contingut</strong> — articles i quantitats. Les etiquetes
+                <span class="help-badge help-badge-warn" style="font-size:0.7rem">MIXT</span>
+                indiquen palets amb més d'un article, i
+                <span class="help-badge" style="font-size:0.7rem; background:#e2e8f0; color:#4a5568">PROPI</span>
+                indiquen embalatge exclusiu d'un article amb dimensió especial</li>
+            <li><strong>Sacs</strong> — total de sacs al palet</li>
+            <li><strong>Base</strong> — sacs per capa (base del palet)</li>
+            <li><strong>Max</strong> — límit màxim de sacs per palet</li>
+            <li><strong>Tipus Palet</strong> — quin palet s'utilitza</li>
+        </ul>
+
+        <div class="help-tip">
+            <strong>Consell:</strong> Fes clic al triangle (&#9654;) per desplegar la secció.
+            Es mostraran tots els palets amb el <strong>detall de cada pis</strong> (quins articles
+            i quants sacs té cada capa) i la <strong>representació gràfica</strong> del palet al costat.
+            Pots fer clic en una fila individual per veure només el detall d'aquell palet.
+        </div>
+
+        <h3>Vista Gràfica de Pàlets</h3>
+        <p>
+            Representació visual de tots els palets. Cada palet es mostra com una pila de capes
+            de colors, on cada color representa un article diferent. Es mostra:
+        </p>
+        <ul>
+            <li>El <strong>codi d'article</strong> i nombre de <strong>sacs</strong> a cada capa</li>
+            <li>El <strong>total de sacs</strong> i <strong>pes</strong> del palet</li>
+            <li>El <strong>tipus de palet</strong> utilitzat</li>
+            <li>Una <strong>llegenda</strong> de colors per identificar cada article</li>
+        </ul>
+
+        <!-- MOCKUP: Vista gràfica -->
+        <div class="mockup">
+            <div class="mockup-body" style="padding:1rem;">
+                <div style="display:flex;flex-wrap:wrap;gap:1.2rem;justify-content:center;">
+                    <!-- Palet 1 -->
+                    <div class="mockup-palet-vis">
+                        <div class="mockup-palet-title">Palet 1</div>
+                        <div class="mockup-palet-sacs">42 sacs &middot; 1050 kg</div>
+                        <div class="mockup-palet-stack">
+                            <div class="mockup-palet-layer mc1">33851 (5)</div>
+                            <div class="mockup-palet-layer mc1">33851 (5)</div>
+                            <div class="mockup-palet-layer mc1">33851 (5)</div>
+                            <div class="mockup-palet-layer mc1">33851 (5)</div>
+                            <div class="mockup-palet-layer mc1">33851 (5)</div>
+                            <div class="mockup-palet-layer mc1">33851 (5)</div>
+                            <div class="mockup-palet-layer mc1">33851 (5)</div>
+                            <div class="mockup-palet-layer mc1">33851 (5)</div>
+                            <div class="mockup-palet-layer mc1" style="opacity:0.7">33851 (2)</div>
+                        </div>
+                        <div class="mockup-palet-base"></div>
+                        <div class="mockup-palet-tipus">FUSTA EUROPEU</div>
+                    </div>
+                    <!-- Palet 2 MIXT -->
+                    <div class="mockup-palet-vis">
+                        <div class="mockup-palet-title">Palet 2</div>
+                        <div class="mockup-palet-sacs">45 sacs &middot; 1125 kg</div>
+                        <div class="mockup-palet-stack">
+                            <div class="mockup-palet-layer mc2">30450 (5)</div>
+                            <div class="mockup-palet-layer mc2">30450 (5)</div>
+                            <div class="mockup-palet-layer mc2">30450 (5)</div>
+                            <div class="mockup-palet-layer mc2">30450 (5)</div>
+                            <div class="mockup-palet-layer mc2">30450 (5)</div>
+                            <div class="mockup-palet-layer mc2">30450 (5)</div>
+                            <div class="mockup-palet-layer mc2">30450 (5)</div>
+                            <div class="mockup-palet-layer mc2">30450 (5)</div>
+                            <div class="mockup-palet-layer mc3">30860 (5)</div>
+                        </div>
+                        <div class="mockup-palet-base"></div>
+                        <div class="mockup-palet-tipus">FUSTA EUROPEU</div>
+                    </div>
+                    <!-- Palet 3 -->
+                    <div class="mockup-palet-vis">
+                        <div class="mockup-palet-title">Palet 3</div>
+                        <div class="mockup-palet-sacs">45 sacs &middot; 1125 kg</div>
+                        <div class="mockup-palet-stack">
+                            <div class="mockup-palet-layer mc3">30860 (5)</div>
+                            <div class="mockup-palet-layer mc3">30860 (5)</div>
+                            <div class="mockup-palet-layer mc3">30860 (5)</div>
+                            <div class="mockup-palet-layer mc3">30860 (5)</div>
+                            <div class="mockup-palet-layer mc3">30860 (5)</div>
+                            <div class="mockup-palet-layer mc3">30860 (5)</div>
+                            <div class="mockup-palet-layer mc3">30860 (5)</div>
+                            <div class="mockup-palet-layer mc3">30860 (5)</div>
+                            <div class="mockup-palet-layer mc3">30860 (5)</div>
+                        </div>
+                        <div class="mockup-palet-base"></div>
+                        <div class="mockup-palet-tipus">FUSTA EUROPEU</div>
+                    </div>
+                </div>
+                <!-- Llegenda -->
+                <div class="mockup-legend" style="justify-content:center;margin-top:0.6rem;padding-top:0.5rem;border-top:1px solid var(--gray-200);">
+                    <div class="mockup-legend-item"><span class="mockup-legend-dot mc1"></span> <span style="font-family:monospace;font-size:0.65rem">33851</span> FARINA GRAN FORCA</div>
+                    <div class="mockup-legend-item"><span class="mockup-legend-dot mc2"></span> <span style="font-family:monospace;font-size:0.65rem">30450</span> FARINA INTEGRAL</div>
+                    <div class="mockup-legend-item"><span class="mockup-legend-dot mc3"></span> <span style="font-family:monospace;font-size:0.65rem">30860</span> FARINA PIRINEUS</div>
+                </div>
+            </div>
+        </div>
+
+        <h3>Detall Comanda (Articles)</h3>
+        <p>
+            Llista de totes les línies de la comanda amb: número de línia, codi i descripció
+            de l'article, tipus d'unitat (TUnitat) i nombre d'unitats (sacs).
+        </p>
+
+        <h3>&#128269; Qualitat de Dades Mestres</h3>
+        <p>
+            Dins les metadades de la comanda, es mostra la validació de completesa de les dades
+            de configuració. Per defecte està <strong>plegada</strong>; fes clic a
+            &ldquo;Qualitat de Dades Mestres&rdquo; per desplegar-la.
+            Apareix quan es detecten camps importants no definits. Exemples:
+        </p>
+        <ul>
+            <li>Direcció sense tipus de descàrrega definit</li>
+            <li>PrevalDireccio activat però sense màxim de sacs o base configurats</li>
+            <li>Articles sense <em>cantidad apilable</em> o <em>UxC</em></li>
+            <li>Articles d'estoc sense palet producte estoc definit</li>
+        </ul>
+
+        <h3>Traçabilitat</h3>
+        <p>
+            Registre complet de totes les decisions preses pel motor. Cada línia explica
+            quina regla s'ha aplicat, per què, i amb quins valors. Aquesta secció és
+            essencial per entendre i verificar el càlcul.
+        </p>
+
+        <!-- MOCKUP: Traçabilitat -->
+        <div class="mockup">
+            <div class="mockup-body" style="padding:0.6rem 1rem;">
+                <div class="mockup-card">
+                    <div class="mockup-card-head"><span class="mockup-arrow">&#9660;</span> Traçabilitat</div>
+                    <div class="mockup-card-body" style="padding:0.3rem 0.5rem;">
+                        <ul class="mockup-trace">
+                            <li>RF1: Línia 10 (33851 - FARINA GRAN FORCA 00) computable (TUnitat=S25, 40 sacs)</li>
+                            <li>RF1: Línia 20 (30450 - FARINA INTEGRAL) computable (TUnitat=S25, 40 sacs)</li>
+                            <li>RF1: 6 linies computables, 0 excloses, total 242 sacs.</li>
+                            <li>RF2: Total sacs computables = 242, minim = 40 (regla general PALET).</li>
+                            <li>RF5: PrevalDireccio = No. S'aplicaran les regles RF6-RF9.</li>
+                            <li>RF9: Articles no adjudicats [33851(base=5), 30450(base=5), ...]. Max=45.</li>
+                            <li>Palet 1: 33851 (FARINA GRAN FORCA, 42 sacs). Base=5, max=45.</li>
+                            <li style="color:var(--gray-400)">...</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 7. Regles -->
+        <h2 id="regles">7. Regles de càlcul (RF1-RF13)</h2>
+        <p>
+            El motor aplica les regles de forma seqüencial. Cada regla valida condicions
+            o determina la configuració dels palets.
+        </p>
+
+        <table class="help-table">
+            <thead>
+                <tr>
+                    <th style="width:60px">Regla</th>
+                    <th>Nom</th>
+                    <th>Descripció</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>RF1</strong></td>
+                    <td>Filtre d'articles</td>
+                    <td>
+                        Filtra les línies de la comanda. Només es processen articles amb
+                        TUnitat de sacs (S05, S10, S15, S20, S25). S'exclouen articles a
+                        granel (GRA) i unitaris (UNI). Si la comanda conté granel, el càlcul
+                        es deté completament (requereix tractament especial).
+                        Les comandes amb granel no apareixen al llistat de comandes pendents.
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>RF2</strong></td>
+                    <td>Comanda mínima</td>
+                    <td>
+                        Valida que la comanda arriba al mínim de sacs:
+                        <ul style="margin:0.3rem 0 0">
+                            <li>PALET: mínim <strong>40 sacs</strong></li>
+                            <li>MANUAL (despaletitzat): mínim <strong>20 sacs</strong></li>
+                            <li>La direcció pot tenir una excepció que sobreescriu aquests valors</li>
+                        </ul>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>RF3</strong></td>
+                    <td>Comanda mínima producció</td>
+                    <td>
+                        Articles amb la condició de comanda mínima de producció han d'arribar
+                        al pes mínim configurat (habitualment 500 kg). Si no s'arriba, el càlcul
+                        es deté.
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>RF4</strong></td>
+                    <td>Dimensions especials</td>
+                    <td>
+                        Articles marcats com a <strong>Dimensio_especial = Si</strong> s'avaluen <strong>individualment</strong>.
+                        Per cada article amb dimensió especial, cal que es compleixi almenys una condició:
+                        <ul style="margin:0.3rem 0 0">
+                            <li><strong>Condició A</strong>: l'article té Cantidad_apilable definida (> 0). Els sacs es col·loquen a sobre de palets existents, en grups de màxim Cantidad_apilable. Si la quantitat supera el límit d'un sol palet, es reparteixen sobre múltiples palets.</li>
+                            <li><strong>Condició B</strong>: la quantitat de sacs de l'article = la seva UxC (forma un embalatge propi exclusiu)</li>
+                            <li>Si <strong>algun</strong> article amb dimensió especial no té Cantidad_apilable definida i no compleix la condició B, el càlcul es deté i cal revisió manual</li>
+                        </ul>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>RF5</strong></td>
+                    <td>Prioritat direcció</td>
+                    <td>
+                        Si la direcció d'enviament té <strong>PrevalDireccio = Sí</strong>,
+                        la configuració de la direcció (base i màxim de sacs) s'aplica a tots
+                        els articles, ignorant les regles RF6-RF9. La direcció mana sobre la
+                        fitxa d'article.
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>RF6</strong></td>
+                    <td>Sac 25 especial</td>
+                    <td>
+                        Articles amb la condició de Sac_25_especial = Si:
+                        <ul style="margin:0.3rem 0 0">
+                            <li><strong>&le; 8 sacs</strong>: condicions de la direcció (base i max), palet de la direcció o BasePalet</li>
+                            <li><strong>&ge; 9 sacs</strong>: base=3, max=30, palet de fusta europeu (PALET) o BasePalet (MANUAL)</li>
+                        </ul>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>RF7</strong></td>
+                    <td>Aprovisionament estoc</td>
+                    <td>
+                        Articles d'aprovisionament d'estoc (camp Aprovisionament = Estoc
+                        o amb palet producte estoc definit). S'aplica per cada article individualment:
+                        <ul style="margin:0.3rem 0 0">
+                            <li><strong>&le; 20 sacs</strong> del mateix article: condicions de la direcció</li>
+                            <li><strong>&ge; 21 sacs</strong> del mateix article: base i max segons la fitxa de l'article, palet producte estoc</li>
+                        </ul>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>RF8</strong></td>
+                    <td>Sac colagne normal</td>
+                    <td>
+                        Quan hi ha <strong>varis</strong> articles amb Sac_colagne_normal = Si a la comanda:
+                        <ul style="margin:0.3rem 0 0">
+                            <li><strong>&le; 26 sacs</strong> (total colagne): condicions de la direcció</li>
+                            <li><strong>&ge; 27 sacs</strong>: base=3, max=30, palet de fusta europeu (PALET) o BasePalet (MANUAL). <strong>Cas estricte: preval sobre RF7</strong> (un article alhora colagne i d'estoc s'avalua a RF8, no a RF7).</li>
+                        </ul>
+                        Si hi ha un sol article colagne, s'avalua a RF9.
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>RF9</strong></td>
+                    <td>Articles normals</td>
+                    <td>
+                        Articles que no tenen cap condició especial. S'aplica:
+                        <ul style="margin:0.3rem 0 0">
+                            <li><strong>Base</strong>: cantidad apilable de l'article, o el valor per defecte (5)</li>
+                            <li><strong>Max</strong>: configuració de la direcció, o el valor per defecte (45)</li>
+                        </ul>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>RF10</strong></td>
+                    <td>Articles no adjudicats</td>
+                    <td>
+                        Articles no adjudicats a embalatges per les regles anteriors. Aplica els mateixos criteris que RF9:
+                        <ul style="margin:0.3rem 0 0">
+                            <li><strong>Tipus palet</strong>: condicions de direcció, o Base palet (01010)</li>
+                            <li><strong>Max</strong>: configuració de la direcció, o el valor per defecte (45)</li>
+                        </ul>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>RF11</strong></td>
+                    <td>Comandes amb sacs S05/S10</td>
+                    <td>
+                        Si la comanda inclou <strong>&ge; 30 sacs</strong> amb TUnitat S05 i/o S10
+                        (sacs de 5 kg i 10 kg), per a aquests articles el màxim de sacs per palet
+                        s'iguala a la seva <strong>Unitats_x_caixa (UxC)</strong>, fent override
+                        sobre el màxim de la direcció d'enviament.
+                        <br>Si l'article té <code>cantidadapilable</code> definida, RF11 també
+                        l'imposa com a <strong>sacs_x_base</strong>: UxC i cantidadapilable
+                        formen el palet del proveïdor i no es poden barrejar amb la base de la
+                        direcció (donaria un nombre de capes impossible).
+                        <br><em>Aplica per article (només sobre les línies S05/S10) i s'avalua
+                        sempre, independentment de RF5-RF10.</em>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>RF12</strong></td>
+                    <td>No barreja si quantitat múltiple del max</td>
+                    <td>
+                        Quan les unitats d'un article són <strong>múltiples del seu màxim
+                        efectiu per palet</strong> (sacs % max == 0), aquell article ocupa
+                        <strong>palets dedicats</strong> i no es barreja amb altres articles
+                        en la composició dels palets.
+                        <br>El màxim efectiu és el resultat del criteri més restrictiu:
+                        <code>min(direcció, UxC article, defecte 45)</code>.
+                        <br><em>Exemple: MEULE T80 amb 60 sacs i UxC=30 → 60%30=0 →
+                        ocupa 2 palets de 30 sacs cadascun, sense barreja.</em>
+                    </td>
+                </tr>
+                <tr>
+                    <td><strong>RF13</strong></td>
+                    <td>Override palet per (client, article)</td>
+                    <td>
+                        Per a combinacions específiques <code>(cli_codi, art_codi)</code>
+                        definides al motor, el palet de <strong>condicions de la direcció
+                        del client</strong> preval sobre el tipus de palet assignat per RF7
+                        (palet d'estoc).
+                        <br>Aplicada com a post-pas: qualsevol palet que contingui un article
+                        amb override veu el seu <code>tipus_palet</code> forçat a
+                        "condicions direcció".
+                        <br><em>Cas definit actualment: client <strong>00301614 (Acid Cafe)</strong>
+                        + article <strong>40150 (Ecològica Força)</strong> → palet americà del
+                        client en lloc del palet d'estoc.</em>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Prioritat de regles</h3>
+        <p>
+            Les regles s'apliquen en ordre de prioritat. Si un article compleix RF6 (Sac_25_especial),
+            aquesta regla preval sobre RF7 (estoc) o RF8 (colagne), encara que l'article tingui altres condicions.
+            L'ordre de prioritat per determinar la configuració d'un article és:
+            <strong>RF5 &gt; RF6 (sac_25_especial) &gt; RF8 estricte (&ge;27 colagne multi) &gt; RF7 (estoc) &gt; RF8 (&le;26 colagne multi) &gt; RF9 &gt; RF10</strong>.
+        </p>
+        <p>
+            Després de calcular la configuració per article, s'apliquen els <strong>overrides
+            i regles de composició</strong>:
+        </p>
+        <ul style="margin:0.3rem 0 0.5rem 1.2rem">
+            <li><strong>RF11</strong> sobreescriu el màxim per palet dels articles S05/S10
+                quan la comanda té &ge; 30 sacs d'aquests formats.</li>
+            <li><strong>RF12</strong> determina si l'article es pot barrejar o ha d'ocupar
+                palets dedicats, segons si la quantitat és múltiple del màxim efectiu.</li>
+            <li><strong>RF13</strong> aplica overrides puntuals de tipus de palet per
+                combinacions concretes <code>(client, article)</code> — el palet de
+                condicions de direcció preval sobre el palet d'estoc.</li>
+        </ul>
+
+        <h3>Optimització de palets (cross-base)</h3>
+        <p>
+            Després d'assignar cada article al seu palet segons les regles, el motor intenta
+            <strong>optimitzar</strong> el nombre de palets fusionant palets amb bases diferents.
+            Si un palet amb base petita (per exemple 3 sacs/capa) cap a sobre d'un palet amb
+            base gran (per exemple 5 sacs/capa) amb espai lliure, es fusionen en un sol palet.
+        </p>
+        <p>
+            La fusió pot adoptar dos modes segons l'estabilitat:
+        </p>
+        <ul>
+            <li><strong>Estable</strong> — els sacs de base gran omplen totes les capes inferiors
+                (inclòs una capa incompleta), i els sacs de base petita van a sobre.
+                S'utilitza quan la resta de sacs de base gran és suficient per formar
+                una capa estable (≥ sacs per capa de base petita).</li>
+            <li><strong>Flotant</strong> — els sacs de base gran omplen primer les capes completes,
+                després van els sacs de base petita, i finalment la resta de sacs de base gran
+                a dalt de tot. S'utilitza quan la resta de sacs de base gran és massa petita
+                per suportar una capa sencera de base petita.</li>
+        </ul>
+        <p>
+            En ambdós casos, la base gran sempre queda a la part inferior del palet per
+            garantir l'estabilitat física.
+        </p>
+
+        <h3>Integritat dels articles</h3>
+        <p>
+            El motor intenta mantenir tots els sacs d'un article al mateix palet. Si un article
+            no cap sencer al palet actual però sí en un palet buit, es tanca el palet actual
+            i es comença un de nou. Només es divideix un article entre palets si la seva
+            quantitat supera la capacitat d'un palet sencer.
+        </p>
+
+        <!-- 8. Tipus descàrrega -->
+        <h2 id="tipus-descarrega">8. Tipus de descàrrega</h2>
+        <table class="help-table">
+            <thead>
+                <tr>
+                    <th>Tipus</th>
+                    <th>Descripció</th>
+                    <th>Palet</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>PALET</strong></td>
+                    <td>
+                        El client rep els palets sencers tal com estan embalats.
+                        S'utilitzen palets físics (per exemple, palet de fusta europeu).
+                    </td>
+                    <td>Físic (s'entrega al client)</td>
+                </tr>
+                <tr>
+                    <td><strong>MANUAL</strong></td>
+                    <td>
+                        Es despaletitza al punt de lliurament. Els sacs es preparen sobre
+                        palets interns (BasePalet) que no s'entreguen al client.
+                    </td>
+                    <td>Lògic (intern, no s'entrega)</td>
+                </tr>
+            </tbody>
+        </table>
+        <p>
+            Si la direcció no té el tipus de descàrrega configurat, el motor l'autodetecta
+            consultant les condicions del client (PREUSCLIENTS). Si no es troba cap palet
+            a les condicions, s'assigna MANUAL per defecte.
+        </p>
+
+        <!-- 9. Qualitat dades -->
+        <h2 id="qualitat-dades">9. Qualitat de dades mestres</h2>
+        <p>
+            La secció de qualitat de dades mestres valida que la configuració de la direcció
+            i dels articles sigui completa. Els avisos es classifiquen en:
+        </p>
+        <ul>
+            <li><strong style="color:var(--danger)">Error</strong> — dada important que manca i pot afectar
+                significativament el càlcul (per exemple, PrevalDireccio=Sí sense màxim de sacs configurat)</li>
+            <li><strong style="color:var(--warning)">Avís</strong> — dada no definida per la qual s'utilitza
+                un valor per defecte (per exemple, cantidad apilable no definida, s'usa 5)</li>
+        </ul>
+        <p>
+            Aquests avisos no impedeixen el càlcul, però indiquen que convé revisar i completar
+            les dades mestres per obtenir resultats més precisos.
+        </p>
+
+        <!-- 10. Forçar -->
+        <h2 id="forcar">10. Forçar un càlcul</h2>
+        <p>
+            Quan una comanda resulta <strong>NO CALCULABLE</strong> (per exemple, no arriba al mínim
+            de sacs o conté articles a granel), apareix el botó
+            <strong>&#9889; Forçar càlcul igualment</strong>.
+        </p>
+
+        <!-- MOCKUP: Error + Forçar -->
+        <div class="mockup">
+            <div class="mockup-body" style="text-align:center;padding:1.5rem;">
+                <div style="font-size:2rem;">&#9888;&#65039;</div>
+                <div style="font-weight:700;font-size:0.95rem;color:var(--danger);margin:0.3rem 0;">NO CALCULABLE</div>
+                <p style="font-size:0.8rem;color:var(--gray-500);max-width:400px;margin:0.5rem auto;">
+                    RF2 STOP: La comanda té 15 sacs però el mínim per preparar és de 40 sacs (regla general PALET). Falten 25 sacs per arribar al mínim.
+                </p>
+                <span class="mockup-btn" style="background:var(--warning);margin-top:0.5rem;display:inline-block;">&#9889; Forçar càlcul igualment</span>
+            </div>
+        </div>
+
+        <p>
+            En prémer-lo, el motor ignora les validacions que bloquegen el càlcul (RF1 granel,
+            RF2 mínim, RF3 comanda mínima producció, RF4 dimensions especials) i genera una
+            proposta d'embalatge igualment. Això és útil per veure com quedaria l'embalatge
+            tot i no complir les condicions mínimes.
+        </p>
+        <div class="help-tip">
+            <strong>Important:</strong> El resultat forçat es marca com a
+            <span class="help-badge help-badge-warn">CALCULAT AMB AVISOS</span>
+            i inclou missatges indicant quines validacions s'han saltat.
+        </div>
+
+        <!-- 11. Sol·licitud d'autorització -->
+        <h2 id="autoritzacio">11. Sol·licitud d'autorització (comandes &lt; 500 kg)</h2>
+        <p>
+            Quan una comanda té un pes total inferior a <strong>500 kg</strong>, apareix
+            un botó <strong>&#9993;&#65039; Sol&middot;licitar autoritzaci&oacute;</strong>
+            a la barra d'accions de la pàgina de detall de la comanda (al costat de
+            <em>Imprimir</em> i <em>CSV</em>).
+        </p>
+        <p>
+            El botó permet enviar un correu automàtic al responsable per demanar la
+            confirmació de la comanda <strong>sense haver de fer captura de pantalla
+            ni obrir Outlook manualment</strong>. El correu inclou un resum HTML
+            estructurat amb totes les dades de la comanda.
+        </p>
+
+        <h3>Quan apareix el botó</h3>
+        <ul>
+            <li>El pes total calculat de la comanda és <strong>&gt; 0 i &lt; 500 kg</strong></li>
+            <li>La comanda té dades de pes (si no hi ha <code>linea_cantidad</code>, el botó no apareix)</li>
+            <li>El botó NO té res a veure amb l'estat <em>SOTA_MÍNIM</em>: es basa només en el pes</li>
+        </ul>
+
+        <h3>Què passa en clicar-lo</h3>
+        <p>S'obre un modal de previsualització amb:</p>
+        <ul>
+            <li><strong>De:</strong> <code>farinera@agrienergia.com</code> (fix)</li>
+            <li><strong>Per a:</strong> camp <strong>editable</strong> pre-poblat amb el destinatari per defecte
+                (<code>ogirona@agrienergia.com</code>)</li>
+            <li><strong>CC:</strong> camp <strong>editable</strong> pre-poblat amb la llista per defecte
+                (<code>lbutinya@agrienergia.com</code>, <code>ldamon@agrienergia.com</code>)</li>
+            <li><strong>Assumpte:</strong> generat automàticament amb el format
+                <code>PENDENT AUTORITZACIÓ COMANDA INFERIOR 500KG - &lt;nom client&gt;</code></li>
+            <li><strong>Cos:</strong> previsualització visual de l'HTML que es rebrà per correu,
+                amb capçalera <em>FARINERA COROMINA</em>, targetes destacant pes/sacs/data servir,
+                taula d'articles amb pesos i bloc d'<em>Acció requerida</em></li>
+        </ul>
+        <div class="help-tip">
+            <strong>Edició de destinataris:</strong> pots afegir, treure o modificar
+            adreces a <em>Per a</em> i <em>CC</em> abans d'enviar (separades per <code>,</code> o <code>;</code>).
+            Els valors per defecte es defineixen a <code>MAIL_TO</code> i <code>MAIL_CC</code> al
+            fitxer <code>.env</code> del servidor.
+        </div>
+
+        <h3>Enviament</h3>
+        <p>
+            Quan cliques <strong>Enviar correu</strong>, el motor s'autentica a Azure AD amb
+            una <strong>App Registration</strong> (OAuth2 <em>client credentials</em>) i envia
+            el correu directament via <strong>Microsoft Graph API</strong> des de la bústia
+            <code>farinera@agrienergia.com</code>. No s'utilitza SMTP ni Power Automate.
+        </p>
+        <p>El backend revalida que el pes és inferior a 500 kg abans d'enviar, per evitar
+            que un usuari pugui forçar l'enviament des d'una comanda més gran modificant
+            el navegador.</p>
+
+        <h3>Cancel·lar</h3>
+        <p>
+            Pots tancar el modal sense enviar amb el botó <strong>Cancel&middot;lar</strong>,
+            la <strong>X</strong> a la cantonada, la tecla <strong>Esc</strong> o clicant
+            fora del modal.
+        </p>
+
+        <h3>Configuració administrativa</h3>
+        <table class="help-table">
+            <thead>
+                <tr><th>Variable .env</th><th>Descripció</th></tr>
+            </thead>
+            <tbody>
+                <tr><td><code>MAIL_TENANT_ID</code></td><td>Tenant ID d'Azure AD on hi ha l'App Registration</td></tr>
+                <tr><td><code>MAIL_CLIENT_ID</code></td><td>Application (client) ID de l'App Registration</td></tr>
+                <tr><td><code>MAIL_CLIENT_SECRET</code></td><td>Client Secret generat al portal Azure (cal rotar abans que caduqui)</td></tr>
+                <tr><td><code>MAIL_FROM_EMAIL</code></td><td>UPN de la bústia remitent (ex: <code>farinera@grupagrienergia.onmicrosoft.com</code>)</td></tr>
+                <tr><td><code>MAIL_FROM_NAME</code></td><td>Nom amigable del remitent</td></tr>
+                <tr><td><code>MAIL_TO</code></td><td>Destinatari per defecte (pre-poblat al modal)</td></tr>
+                <tr><td><code>MAIL_CC</code></td><td>CC per defecte (pre-poblat al modal). Adreces separades per <code>,</code></td></tr>
+            </tbody>
+        </table>
+        <p style="font-size:0.85rem;color:var(--gray-500);">
+            Veure <code>MAIL_SETUP.md</code> al repositori per al detall de configuració de
+            l'App Registration, els permisos <code>Mail.Send</code> i la rotació del Client Secret.
+        </p>
+
+        <!-- 12. Glossari -->
+        <h2 id="glossari">12. Glossari</h2>
+        <table class="help-table">
+            <thead>
+                <tr>
+                    <th>Terme</th>
+                    <th>Definició</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>TUnitat</strong></td>
+                    <td>Tipus d'unitat de l'article: S05, S10, S15, S20, S25 (sacs de diferent pes), GRA (granel), UNI (unitari)</td>
+                </tr>
+                <tr>
+                    <td><strong>UxC</strong></td>
+                    <td>Unitats per Caixa. Màxim de sacs que caben en un palet segons la fitxa de l'article</td>
+                </tr>
+                <tr>
+                    <td><strong>Cantidad Apilable</strong></td>
+                    <td>Sacs per capa (base) de l'article. Determina quants sacs formen una capa horitzontal del palet</td>
+                </tr>
+                <tr>
+                    <td><strong>Base (sacs x base)</strong></td>
+                    <td>Nombre de sacs que formen una capa del palet. Pot venir de la direcció o de l'article</td>
+                </tr>
+                <tr>
+                    <td><strong>Max (màxim sacs)</strong></td>
+                    <td>Nombre màxim de sacs que pot tenir un palet</td>
+                </tr>
+                <tr>
+                    <td><strong>PrevalDireccio</strong></td>
+                    <td>Quan està activat, la configuració de la direcció d'enviament té prioritat sobre la de l'article</td>
+                </tr>
+                <tr>
+                    <td><strong>BasePalet</strong></td>
+                    <td>Palet lògic intern (article 01010). S'utilitza per descàrrega MANUAL. No s'entrega al client</td>
+                </tr>
+                <tr>
+                    <td><strong>Palet Fusta Europeu</strong></td>
+                    <td>Palet físic estàndard (article 01030). S'entrega al client en descàrregues de tipus PALET</td>
+                </tr>
+                <tr>
+                    <td><strong>Dimensio especial</strong></td>
+                    <td>Articles amb limitacions de preparació i remuntatge (com sego i segonet). RF4 els valida individualment. Poden formar embalatge propi o apilar-se sobre un altre palet</td>
+                </tr>
+                <tr>
+                    <td><strong>Sac 25 especial</strong></td>
+                    <td>Articles amb mida o configuració diferent de l'estàndard. Segueixen la regla RF6</td>
+                </tr>
+                <tr>
+                    <td><strong>Sac colagne normal</strong></td>
+                    <td>Articles amb mida similar als sacs de FC però amb limitació de picking. Segueixen la regla RF8 quan hi ha varis a la mateixa comanda</td>
+                </tr>
+                <tr>
+                    <td><strong>Aprovisionament estoc</strong></td>
+                    <td>Articles que es serveixen des d'estoc (no de producció). Es detecta pel camp Aprovisionament = Estoc o per tenir un palet producte estoc definit. Segueixen la regla RF7</td>
+                </tr>
+                <tr>
+                    <td><strong>Comanda mínima producció</strong></td>
+                    <td>Condició d'articles que requereixen un pes mínim per poder-se produir (RF3)</td>
+                </tr>
+                <tr>
+                    <td><strong>MIXT</strong></td>
+                    <td>Palet que conté més d'un article diferent</td>
+                </tr>
+                <tr>
+                    <td><strong>PROPI</strong></td>
+                    <td>Embalatge exclusiu d'un article amb dimensió especial que compleix la condició B de RF4</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- ADMINISTRACIÓ -->
+        <h2 id="admin">Administraci&oacute;</h2>
+
+        <h3>Versi&oacute; actual</h3>
+        <p id="admin-versio" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--gray-600);">Carregant...</p>
+
+        <h3>Actualitzar aplicaci&oacute;</h3>
+        <p>Descarrega l'&uacute;ltima versi&oacute; de GitHub i reinicia el servei autom&agrave;ticament.</p>
+        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <input type="password" id="admin-clau" placeholder="Clau d'administraci&oacute;"
+                   style="padding: 0.5rem 0.75rem; border: 1px solid var(--gray-300); border-radius: 6px; font-size: 0.9rem; width: 220px;">
+            <button id="btn-actualitzar"
+                    style="padding: 0.5rem 1.25rem; background: var(--primary); color: white; border: none; border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer;">
+                Actualitzar
+            </button>
+        </div>
+        <div id="admin-resultat" style="margin-top: 0.75rem; display: none;">
+            <pre style="background: var(--gray-100); padding: 0.75rem; border-radius: 6px; font-size: 0.82rem; white-space: pre-wrap; max-height: 200px; overflow-y: auto;"></pre>
+        </div>
+
+        <div style="margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--gray-200); color: var(--gray-500); font-size: 0.8rem;">
+            Motor de Preparaci&oacute; de Comandes de Venda
+        </div>
+
+    </div>
+
+    <script>
+    // Versió actual
+    (async function() {
+        try {
+            const resp = await fetch("/api/admin/versio");
+            const data = await resp.json();
+            document.getElementById("admin-versio").textContent = data.versio || "desconeguda";
+        } catch (e) {
+            document.getElementById("admin-versio").textContent = "No disponible";
+        }
+    })();
+
+    // Botó actualitzar
+    document.getElementById("btn-actualitzar").addEventListener("click", async function() {
+        const clau = document.getElementById("admin-clau").value.trim();
+        if (!clau) { alert("Cal introduir la clau d'administraci\u00F3"); return; }
+
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = "Actualitzant...";
+        const resultat = document.getElementById("admin-resultat");
+        const pre = resultat.querySelector("pre");
+        resultat.style.display = "block";
+        pre.textContent = "Descarregant actualitzaci\u00F3...";
+
+        try {
+            const resp = await fetch("/api/admin/actualitzar", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({clau: clau}),
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                let msg = "Actualitzaci\u00F3 completada!\n\n";
+                msg += "Git: " + (data.git || "sense canvis") + "\n";
+                if (data.pip) msg += "Pip: " + data.pip + "\n";
+                if (data.restart) msg += "Servei: " + data.restart + "\n";
+                msg += "\nLa p\u00E0gina es recarregar\u00E0 en 3 segons...";
+                pre.textContent = msg;
+                pre.style.color = "var(--success)";
+                setTimeout(() => window.location.reload(), 3000);
+            } else {
+                pre.textContent = "Error: " + (data.error || "desconegut");
+                pre.style.color = "var(--danger)";
+            }
+        } catch (e) {
+            pre.textContent = "Error de connexi\u00F3: " + e.message;
+            pre.style.color = "var(--danger)";
+        }
+        btn.disabled = false;
+        btn.textContent = "Actualitzar";
+    });
+
+    // Dark mode: sincronitzar amb l'aplicació principal
+    (function() {
+        const darkBtn = document.getElementById("btn-dark-mode");
+        function applyTheme(theme) {
+            document.documentElement.setAttribute("data-theme", theme);
+            localStorage.setItem("theme", theme);
+            darkBtn.textContent = theme === "dark" ? "\u2600" : "\u263E";
+        }
+        const savedTheme = localStorage.getItem("theme") ||
+            (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        applyTheme(savedTheme);
+        darkBtn.addEventListener("click", function() {
+            applyTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark");
+        });
+    })();
+    </script>
+</body>
+</html>

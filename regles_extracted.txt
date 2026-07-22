@@ -1,0 +1,72 @@
+Regles de Preparació de Comandes V3 27-03-26
+Objectiu
+Automatitzar la preparació de comandes de venda, eliminant decisions manuals i garantint criteris únics, estables i coherents amb les regles de l’empresa, a través d’un codi executable, ja sigui independent o integrat dins a SAP amb el model que es decideixi.
+Glossari 
+Embalatge:  L’embalatge és la unitat de preparació logística de la comanda. Cada embalatge correspon 1:1 amb un suport físic o lògic. L’embalatge s’assigna sempre a totes les comandes, tant si el client rep el palet com si la descàrrega és despaletitzada.
+L’embalatge és el concepte utilitzat per calcular la preparació de comanda, el nombre d’unitats logístiques i l’ocupació d’espai al camió. A nivell de sistema, l’embalatge sempre es representa mitjançant un article, que pot ser un palet físic o un palet lògic (BasePalet)
+Palet:  El palet és el suport físic on es col·loquen els sacs. Disposem de diferents tipus de palet (fusta europeu, fusta americà i plàstic europeu), cada direcció de client que entreguem el palet físicament s’especifica el tipus de palet que desitja el client. 
+Quan una comanda requereix un nombre determinat d’embalatges i el client rep palet, aquest nombre es reflecteix en una línia d’article de palet a la comanda, a l’albarà i a la factura, amb moviment de magatzem.
+BasePalet: La base palet és un suport lògic, utilitzat quan el client no rep el palet físicament (despaletitzat). La base palet es defineix mitjançant un article específic definit al sistema que no genera moviment de magatzem ni apareix a l’albarà ni a la factura. La seva única funció és permetre que l’algoritme pugui assignar, calcular i gestionar el nombre d’embalatges de manera homogènia per a totes les comandes. D’aquesta manera, totes les comandes tenen sempre embalatges, independentment de si el palet es lliura o no al client.
+Tipus de descàrrega El tipus de descàrrega indica si el client rep el palet físicament o no i es defineix a nivell de direcció d’enviament. Aquest criteri determina exclusivament com es representa l’embalatge dins del sistema. Quan el servei és a palet, el client rep la comanda lliurada sobre palets. En aquest cas, els embalatges calculats per l’algoritme es materialitzen com a palets físics, fet que pot afectar els mínims de comanda i la representació de l’embalatge als documents. Quan el servei és despaletitzat o amb descàrrega manual, el client no rep el palet físicament. Tot i això, la comanda necessita igualment embalatges a nivell de càlcul per a la preparació i el transport, que es representen mitjançant base palet, d’ús intern. El tipus de descàrrega no modifica el càlcul del nombre d’embalatges, sinó únicament la seva representació com a palet físic o com a base palet.
+Sacs_x_base: indica el nombre de sacs que es col·loquen a cada nivell del palet. Les bases possibles són 3, 4 o 5 sacs i s’utilitzen com a criteri per al càlcul dels embalatges. La base del palet pot estar definida a nivell d’article o a nivell de direcció d’enviament. Quan no existeix una base específica a l’article, s’aplica la base definida a la direcció d’enviament. Els criteris de prioritat entre ambdues s’estableixen a les regles funcionals. La base del palet condiciona la forma de preparació de l’embalatge i, en els magatzems on s’aplica, el múltiple al qual s’ha d’ajustar la quantitat de sacs de la comanda.
+Maxim_sacs_palet (Direcció enviament): És el límit superior de sacs que poden formar part d’un mateix embalatge i es determina aplicant el criteri més restrictiu entre els límits definits a nivell d’article (unitats x caixa), de direcció d’enviament i els límits generals establerts.
+Unitats x caixa (UxC) (article): És el màxim de sacs que poden anar en un palet per un article concret. Aquest valor és crític perquè competeix amb el màxim del client: mana el valor més restrictiu. 
+Múltiples de comanda: són una regla d’ajust de quantitats que s’aplica en determinats magatzems per facilitar la preparació logística dels palets. Quan la regla està activa, la quantitat de sacs de la comanda s’ajusta fins al múltiple vàlid. El valor del múltiple ve determinat per la base del palet aplicada (3, 4 o 5 sacs). Els múltiples s’apliquen únicament als magatzems definits i no modifiquen ni els mínims de comanda ni els màxims de sacs per palet.
+Farina específica: Article que requereix una producció mínima de 500kg, si l’article té aquesta condició activada, abans de fer qualsevol càlcul s’haurà de verificar que la comanda inclou aquesta quantitat mínima.
+Comanda mínima: Defineix el nombre mínim de sacs que es poden servir en una comanda. El mínim pot variar en funció del tipus de descàrrega i es defineix a nivell de direcció d’enviament del client. En absència d’una definició específica, s’apliquen els valors generals establerts. La validació de la comanda mínima és independent del càlcul d’embalatges i dels múltiples de comanda. Les possibles excepcions es gestionen també a nivell de direcció d’enviament.
+Article_especial: Són articles amb limitacions importants de preparació i remuntatge, (com sego i segonet) que poden restringir fortament el càlcul d’embalatges o requerir tractaments específics. Les seves regles prevalen sempre sobre les regles generals. Quan una comanda inclou un producte especial, l’algoritme aplica les regles específiques associades a aquest producte o, si no és possible fer el càlcul automàtic, indica que la comanda requereix revisió manual.
+Sac_25_especial: Són articles amb una mida o configuració diferent de l’estàndard, que permeten càlcul automàtic d’embalatges aplicant regles específiques de base del palet, màxim de sacs i combinació d’articles.
+Picking: Acció de posar sacs a sobre d’un primer nivell. Alguns productes tenen límits especials. 
+Producte amb estoc: Producte fabricat o comercialitzat que es disposa d’estoc permanent.
+TUnitat (Tipus d’unitat): identifica el format de l’article i pot prendre valors com granel, unitari o sac estàndard (S05, S10, S15, S20 o S25); només els articles amb TUnitat = S05, S10, S15, S20 o S25 intervenen en el càlcul d’embalatges, mentre que els articles amb TUnitat = granel o unitari queden exclosos del càlcul, tot i formar part de la comanda a nivell comercial i operatiu.
+Aprovisionament d’estoc: identifica els articles que es produeixen o es comercialitzen de manera contínua sense esperar una comanda específica (model “a estoc”), de manera que mantenen disponibilitat permanent per atendre comandes immediatament; pot aplicar tant a fabricats com a comercialitzats, i aquests articles tenen un tipus de palet i base i maxim sac palet per defecte. 
+Dades
+Direcció d’enviament del client
+Sacs_x_base:
+Màxim_sacs_x_palet:
+Sacs comanda mínima:
+Preval palet direcció: si/no            
+Tipus descàrrega (palet / despaletitzat)
+Magatzem:
+Articles
+Aprovisionament: Estoc (NO  - buit)
+Unitats_x_caixa:
+Cantidad_apilable (Sacs x base)
+Codi Palet producte estoc:
+Artice_especial: SI (NO – buit)
+TUnitat:  
+Sac_25_especial: SI (NO – buit) 
+Farina especifica: SI (NO_buit)
+Condicions 
+Tipus palet (condicions venda articles)
+Comanda de venda
+Regles funcionals algoritme
+El càlcul d’embalatges s’aplica seguint un ordre de prioritat clar i únic, de manera que, en cas de conflicte entre regles, sempre preval la regla més restrictiva o específica.
+RF 1: Filtre articles computables: 
+Si la comanda inclou article a TUnitat: GRA ha de sortir un avis que no pot activar el procés de preparació de comanda.
+Només es tenen en compte per al càlcul d’embalatges els articles amb TUnitat S05, S10, S15, S20 o S25; qualsevol article que no tingui un d’aquests formats queda exclòs del càlcul d’embalatges, tot i que forma part igualment de la comanda a nivell comercial i operatiu.
+RF 2: Validació comanda mínima: el mínim aplicable deriva del camp de dades mestres Tipus de descàrrega de la direcció d’enviament: 
+si el Tipus de descàrrega = A PALET, el mínim és 40 sacs; 
+si el Tipus de descàrrega = DESPALETITZADA, el mínim és 20 sacs; 
+Poden existir excepcions definides a la direcció d’enviament 
+Si la comanda no arriba al mínim, el sistema ha d’avisar perquè s’ajustin les unitats abans d’aplicar la resta de regles.
+RF 3 : Validació de “Farina específica”
+Per a cada línia computable marcada com Farina específica = Sí, el motor valida que la quantitat de la comanda compleix la producció mínima requerida (actualment 500 kg). 
+Si no es compleix el mínim, el motor no calcula embalatges i retorna un avís de revisió/ajust. 
+RF 4: Validació d’articles especials (condició de “calculable / no calculable”)
+Si la comanda inclou línies amb Article_especial = Sí, el motor només pot fer càlcul automàtic si es compleix almenys una d’aquestes condicions:
+El nombre total de sacs especials a la comanda és ≤ Cantidad_apilable (segons dade mestra). 
+La quantitat de cada article especial és exactament igual a les seves Unitats_x_caixa (UxC), cas en què cada especial forma el seu embalatge propi. 
+Si no es compleix cap condició, el motor no genera proposta i retorna avís de revisió manual. 
+RF 5: Prioritat de la direcció d’enviament: 
+Si a la direcció d’enviament el camp PrevalDireccio = Sí, la configuració de tipus de palet, Sacs_x_base (base) i MaxSacsEmbalatge (màxim per embalatge) mana per sobre de la fitxa d’article.
+Valors per defecte direcció d’enviament: si la direcció d’enviament no especifica res, en els camps Sacs_x_base = 5 i Màxim_sacs_x_palet = 45. 
+En articles d’aprovisionament d’estoc: 
+Fins a 20 sacs, el tipus de palet, sacs x base i unitats x caixa segons estipula la direcció d’enviament.
+A partir de 21 sacs del mateix article, s’ha de respectar el tipus de palet, Sacs x base i Unitats_x_caixa definits a la fitxa d’article.
+En comandes amb varis productes d’aprovisionament d’estoc, 
+Fins a 26 sacs, el tipus de palet, sacs x base i unitats x caixa segons estipula la direcció d’enviament
+A partir de 27 sacs s’aplicarà el tipus de palets, sacs x base i unitats x caixa definits a la fitxa de l’article. 
+En comandes amb articles Sac_25_especial:
+Fins a 8 sacs, el tipus de palet, sacs x base i unitats x caixa segons estipula la direcció d’enviament
+A partir de 9 sacs s’aplicarà per defecte sacs x base = 3 i unitats x caixa = 30.

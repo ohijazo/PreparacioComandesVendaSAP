@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <title>Guia de Desplegament - Motor de Preparaci&oacute; de Comandes de Venda</title>
+    <style>
+        @page { size: A4; margin: 2cm; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #1a202c; max-width: 800px; margin: 0 auto; padding: 2rem; }
+        h1 { color: #2b6cb0; font-size: 20pt; border-bottom: 3px solid #2b6cb0; padding-bottom: 0.5rem; }
+        h2 { color: #2c5282; font-size: 14pt; margin-top: 2rem; border-bottom: 1px solid #bee3f8; padding-bottom: 0.3rem; page-break-after: avoid; }
+        h3 { color: #2d3748; font-size: 12pt; margin-top: 1.5rem; page-break-after: avoid; }
+        code { font-family: 'JetBrains Mono', 'Consolas', monospace; background: #edf2f7; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 10pt; }
+        pre { background: #1a202c; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 9.5pt; line-height: 1.5; }
+        pre code { background: none; color: inherit; padding: 0; }
+        table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 10pt; }
+        th, td { border: 1px solid #cbd5e0; padding: 0.5rem 0.75rem; text-align: left; }
+        th { background: #edf2f7; font-weight: 600; }
+        .info { background: #ebf8ff; border-left: 4px solid #3182ce; padding: 0.6rem 1rem; margin: 0.75rem 0; border-radius: 0 4px 4px 0; font-size: 10pt; }
+        .warning { background: #fffbeb; border-left: 4px solid #d69e2e; padding: 0.6rem 1rem; margin: 0.75rem 0; border-radius: 0 4px 4px 0; font-size: 10pt; }
+        .danger { background: #fff5f5; border-left: 4px solid #e53e3e; padding: 0.6rem 1rem; margin: 0.75rem 0; border-radius: 0 4px 4px 0; font-size: 10pt; }
+        .success { background: #f0fff4; border-left: 4px solid #38a169; padding: 0.6rem 1rem; margin: 0.75rem 0; border-radius: 0 4px 4px 0; font-size: 10pt; }
+        .header-meta { color: #718096; font-size: 10pt; margin-bottom: 2rem; }
+        .toc { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+        .toc ol { padding-left: 1.25rem; }
+        .toc a { color: #2b6cb0; text-decoration: none; }
+        ul, ol { padding-left: 1.5rem; }
+        li { margin-bottom: 0.3rem; }
+        .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; color: #a0aec0; font-size: 9pt; text-align: center; }
+    </style>
+</head>
+<body>
+
+<h1>Guia de Desplegament</h1>
+<p style="font-size: 14pt; color: #4a5568; margin-top: -0.5rem;">Motor de Preparaci&oacute; de Comandes de Venda</p>
+<div class="header-meta">
+    Versi&oacute; 10 &mdash; Abril 2026<br>
+    Plataforma objectiu: Ubuntu Server 24.04 LTS<br>
+    Aplicaci&oacute; web Python/Flask amb connexi&oacute; a SQL Server
+</div>
+
+<div class="toc">
+    <strong>Contingut</strong>
+    <ol>
+        <li><a href="#requisits">Requisits de la m&agrave;quina virtual</a></li>
+        <li><a href="#arquitectura">Arquitectura de l'aplicaci&oacute;</a></li>
+        <li><a href="#instal">Instal&middot;laci&oacute; de paquets</a></li>
+        <li><a href="#descarrega">Desc&agrave;rrega i configuraci&oacute; de l'aplicaci&oacute;</a></li>
+        <li><a href="#servei">Servei systemd amb Gunicorn</a></li>
+        <li><a href="#apache">Apache VirtualHost (proxy invers)</a></li>
+        <li><a href="#xarxa">Xarxa i tallafocs</a></li>
+        <li><a href="#verificacio">Llista de verificaci&oacute;</a></li>
+        <li><a href="#manteniment">Manteniment i actualitzacions</a></li>
+        <li><a href="#logs">Logs i monitoratge</a></li>
+        <li><a href="#troubleshooting">Resoluci&oacute; de problemes</a></li>
+        <li><a href="#resum">Resum i temps estimats</a></li>
+    </ol>
+</div>
+
+<div class="success">
+    <strong>Nota:</strong> Aquesta aplicaci&oacute; comparteix servidor amb Lab FC. Molts dels paquets base (Python, Apache, ODBC Driver, UFW) ja estaran instal&middot;lats. Les seccions afectades ho indiquen amb un av&iacute;s.
+</div>
+
+<!-- 1. REQUISITS VM -->
+<h2 id="requisits">1. Requisits de la m&agrave;quina virtual</h2>
+
+<h3>Maquinari</h3>
+<table>
+    <tr><th>Recurs</th><th>M&iacute;nim</th><th>Recomanat</th></tr>
+    <tr><td>CPU</td><td>2 vCPU</td><td>4 vCPU</td></tr>
+    <tr><td>RAM</td><td>2 GB</td><td>4 GB</td></tr>
+    <tr><td>Disc</td><td>20 GB</td><td>40 GB</td></tr>
+    <tr><td>SO</td><td>Ubuntu Server 24.04 LTS</td><td></td></tr>
+</table>
+
+<div class="info">
+    Si Lab FC ja est&agrave; desplegat en aquesta VM, els recursos ja seran suficients. Nom&eacute;s cal afegir ~500 MB d'espai per aquesta aplicaci&oacute;.
+</div>
+
+<h3>Programari necessari</h3>
+<table>
+    <tr><th>Component</th><th>Versi&oacute;</th><th>Funci&oacute;</th><th>Ja instal&middot;lat amb Lab FC?</th></tr>
+    <tr><td>Ubuntu Server</td><td>24.04 LTS</td><td>Sistema operatiu</td><td>S&iacute;</td></tr>
+    <tr><td>Python</td><td>3.12+</td><td>Runtime de l'aplicaci&oacute;</td><td>S&iacute;</td></tr>
+    <tr><td>Apache2</td><td>2.4+</td><td>Proxy invers</td><td>S&iacute;</td></tr>
+    <tr><td>ODBC Driver 18</td><td>18.x</td><td>Connexi&oacute; a SQL Server</td><td><strong>No (nou)</strong></td></tr>
+    <tr><td>unixODBC</td><td>2.3+</td><td>Gestor ODBC a Linux</td><td><strong>No (nou)</strong></td></tr>
+    <tr><td>Git</td><td>2.x</td><td>Descarregar el codi</td><td>S&iacute;</td></tr>
+</table>
+
+<h3>Connectivitat de xarxa</h3>
+<ul>
+    <li>Acc&eacute;s al servidor SQL Server <code>vkais</code> (port <strong>50058</strong>)</li>
+    <li>Port 80 (Apache) per servir l'aplicaci&oacute;</li>
+    <li>Port 5001 (intern, Gunicorn &mdash; nom&eacute;s localhost)</li>
+    <li>Acc&eacute;s a Internet per descarregar paquets (durant la instal&middot;laci&oacute;)</li>
+</ul>
+
+<!-- 2. ARQUITECTURA -->
+<h2 id="arquitectura">2. Arquitectura de l'aplicaci&oacute;</h2>
+
+<p>L'aplicaci&oacute; segueix la mateixa arquitectura que Lab FC: Apache com a proxy invers davant de Gunicorn, que executa l'aplicaci&oacute; Flask. L'&uacute;nica difer&egrave;ncia &eacute;s que aquesta aplicaci&oacute; es connecta a SQL Server (no PostgreSQL).</p>
+
+<pre><code>Navegador  ───▶  Apache (port 80)  ───▶  Gunicorn (port 5001)
+                                               │
+                                         SQL Server
+                                         vkais:50058
+                                         GWSV_AGRI</code></pre>
+
+<h3>Estructura de directoris</h3>
+<pre><code>/var/www/comandes-venda/
+  app.py              # Servidor web Flask (punt d'entrada)
+  motor.py            # Orquestrador principal del c&agrave;lcul
+  regles.py           # Regles funcionals RF1-RF9
+  consultes.py        # Consultes SQL i connexi&oacute; a BD
+  models.py           # Dataclasses del model de dades
+  requirements.txt    # Depend&egrave;ncies Python
+  .env                # Variables de configuraci&oacute; (cal crear manualment)
+  static/             # CSS, JavaScript
+  templates/          # HTML (Jinja2)
+  venv/               # Entorn virtual Python</code></pre>
+
+<h3>Comparativa amb Lab FC</h3>
+<table>
+    <tr><th>Aspecte</th><th>Lab FC</th><th>Comandes Venda</th></tr>
+    <tr><td>Directori</td><td><code>/var/www/lab-fc</code></td><td><code>/var/www/comandes-venda</code></td></tr>
+    <tr><td>Backend</td><td>Python/Flask</td><td>Python/Flask</td></tr>
+    <tr><td>WSGI</td><td>Gunicorn</td><td>Gunicorn</td></tr>
+    <tr><td>Proxy</td><td>Apache</td><td>Apache</td></tr>
+    <tr><td>Base de dades</td><td>PostgreSQL (local)</td><td>SQL Server (remot)</td></tr>
+    <tr><td>Usuari</td><td>www-data</td><td>www-data</td></tr>
+    <tr><td>Servei</td><td>lab-fc.service</td><td>comandes-venda.service</td></tr>
+</table>
+
+<!-- 3. INSTAL·LACIÓ PAQUETS -->
+<h2 id="instal">3. Instal&middot;laci&oacute; de paquets</h2>
+
+<h3>3.1 Actualitzar el sistema</h3>
+<pre><code>sudo apt update && sudo apt upgrade -y</code></pre>
+
+<h3>3.2 Paquets base (probablement ja instal&middot;lats)</h3>
+<div class="info">
+    Si Lab FC ja est&agrave; desplegat, Python, pip, venv, Git, curl i Apache ja estaran instal&middot;lats. Podeu saltar al pas 3.3.
+</div>
+<pre><code>sudo apt install -y python3 python3-pip python3-venv git curl gnupg2 apache2</code></pre>
+
+<h3>3.3 Instal&middot;lar el driver ODBC 18 de Microsoft (NOU)</h3>
+<p>Aquesta &eacute;s l'&uacute;nica depend&egrave;ncia nova respecte Lab FC. Cal instal&middot;lar el driver ODBC per connectar-se a SQL Server.</p>
+<pre><code># Afegir el repositori de Microsoft
+curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+  | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
+
+# Per Ubuntu 24.04:
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] \
+  https://packages.microsoft.com/ubuntu/24.04/prod noble main" \
+  | sudo tee /etc/apt/sources.list.d/mssql-release.list
+
+# Instal·lar
+sudo apt update
+sudo ACCEPT_EULA=Y apt install -y msodbcsql18 unixodbc-dev</code></pre>
+
+<h3>3.4 Verificar el driver ODBC</h3>
+<pre><code>odbcinst -q -d
+# Ha d'apar&egrave;ixer: [ODBC Driver 18 for SQL Server]</code></pre>
+
+<!-- 4. DESCÀRREGA I CONFIGURACIÓ -->
+<h2 id="descarrega">4. Desc&agrave;rrega i configuraci&oacute; de l'aplicaci&oacute;</h2>
+
+<h3>4.1 Clonar el repositori</h3>
+<pre><code># Crear directori (mateix patr&oacute; que Lab FC)
+sudo mkdir -p /var/www/comandes-venda
+cd /var/www/comandes-venda
+
+# Clonar el repositori
+sudo git clone https://github.com/ohijazo/PreparacioComandesVenda.git .
+
+# Assignar propietat a www-data (mateix usuari que Lab FC)
+sudo chown -R www-data:www-data /var/www/comandes-venda</code></pre>
+
+<h3>4.2 Crear el fitxer .env</h3>
+<div class="danger">
+    <strong>IMPORTANT:</strong> El fitxer <code>.env</code> NO est&agrave; al repositori per seguretat. Cal crear-lo manualment amb les credencials de connexi&oacute; a la base de dades.
+</div>
+<pre><code>sudo nano /var/www/comandes-venda/.env</code></pre>
+<p>Contingut:</p>
+<pre><code>SQL_SERVER=vkais,50058
+SQL_DATABASE=GWSV_AGRI
+SQL_USER=&lt;usuari_sql&gt;
+SQL_PASSWORD=&lt;contrasenya_sql&gt;</code></pre>
+
+<div class="warning">
+    <strong>Port SQL Server:</strong> El servidor SQL utilitza el port <strong>50058</strong> (no el port est&agrave;ndard 1433). &Eacute;s imprescindible incloure el port a <code>SQL_SERVER</code> separat per coma.
+</div>
+
+<h3>4.3 Protegir el fitxer .env</h3>
+<pre><code>sudo chmod 640 /var/www/comandes-venda/.env
+sudo chown www-data:www-data /var/www/comandes-venda/.env</code></pre>
+
+<h3>4.4 Variables de configuraci&oacute; (refer&egrave;ncia)</h3>
+<table>
+    <tr><th>Variable</th><th>Valor</th><th>Descripci&oacute;</th></tr>
+    <tr><td><code>SQL_SERVER</code></td><td><code>vkais,50058</code></td><td>Servidor SQL Server amb port</td></tr>
+    <tr><td><code>SQL_DATABASE</code></td><td><code>GWSV_AGRI</code></td><td>Base de dades</td></tr>
+    <tr><td><code>SQL_USER</code></td><td><em>(proporcionat)</em></td><td>Usuari SQL (nom&eacute;s lectura)</td></tr>
+    <tr><td><code>SQL_PASSWORD</code></td><td><em>(proporcionat)</em></td><td>Contrasenya SQL</td></tr>
+</table>
+
+<div class="info">
+    <strong>Permisos SQL:</strong> L'usuari nom&eacute;s necessita permisos de <strong>lectura</strong> (SELECT) sobre les taules:
+    <code>CPALBARA</code>, <code>ALBLINIA</code>, <code>ARTICLES</code>, <code>CLIENVIO</code>,
+    <code>articli</code>, <code>info_clienvio</code>, <code>INF_ARTICULO</code>, <code>INFOANEX</code>,
+    <code>PREUSCLIENTS</code>, <code>SERIEALB</code>, <code>AGENTS</code>.
+</div>
+
+<h3>4.5 Crear entorn virtual i instal&middot;lar depend&egrave;ncies</h3>
+<pre><code>cd /var/www/comandes-venda
+sudo -u www-data python3 -m venv venv
+sudo -u www-data venv/bin/pip install --upgrade pip
+sudo -u www-data venv/bin/pip install -r requirements.txt
+sudo -u www-data venv/bin/pip install gunicorn</code></pre>
+
+<h3>4.6 Verificar la connexi&oacute; a SQL Server</h3>
+<pre><code>cd /var/www/comandes-venda
+sudo -u www-data venv/bin/python -c "
+from consultes import connectar
+conn = connectar()
+print('Connexi&oacute; OK')
+conn.close()
+"</code></pre>
+
+<div class="danger">
+    <strong>Si falla la connexi&oacute;:</strong> Verificar que el port 50058 est&agrave; obert al firewall del servidor Windows on corre SQL Server. Provar amb: <code>telnet vkais 50058</code>
+</div>
+
+<!-- 5. SERVEI SYSTEMD -->
+<h2 id="servei">5. Servei systemd amb Gunicorn</h2>
+
+<p>Igual que Lab FC, configurem un servei systemd que executa Gunicorn com a servidor WSGI.</p>
+
+<h3>5.1 Crear el fitxer de servei</h3>
+<pre><code>sudo nano /etc/systemd/system/comandes-venda.service</code></pre>
+
+<p>Contingut:</p>
+<pre><code>[Unit]
+Description=Motor de Preparacio de Comandes de Venda
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/comandes-venda
+EnvironmentFile=/var/www/comandes-venda/.env
+ExecStart=/var/www/comandes-venda/venv/bin/gunicorn \
+    --bind 127.0.0.1:5001 \
+    --workers 2 \
+    --timeout 120 \
+    --access-logfile /var/www/comandes-venda/access.log \
+    --error-logfile /var/www/comandes-venda/error.log \
+    app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+<div class="info">
+    <strong>Nota:</strong> Gunicorn escolta a <code>127.0.0.1:5001</code> (nom&eacute;s localhost). L'acc&eacute;s extern es fa a trav&eacute;s d'Apache.
+</div>
+
+<h3>5.2 Activar i iniciar el servei</h3>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl enable comandes-venda
+sudo systemctl start comandes-venda
+sudo systemctl status comandes-venda</code></pre>
+
+<h3>5.3 Comandes &uacute;tils del servei</h3>
+<table>
+    <tr><th>Comanda</th><th>Acci&oacute;</th></tr>
+    <tr><td><code>sudo systemctl start comandes-venda</code></td><td>Iniciar</td></tr>
+    <tr><td><code>sudo systemctl stop comandes-venda</code></td><td>Aturar</td></tr>
+    <tr><td><code>sudo systemctl restart comandes-venda</code></td><td>Reiniciar</td></tr>
+    <tr><td><code>sudo systemctl status comandes-venda</code></td><td>Veure estat</td></tr>
+    <tr><td><code>journalctl -u comandes-venda -f</code></td><td>Veure logs en temps real</td></tr>
+</table>
+
+<!-- 6. APACHE VIRTUALHOST -->
+<h2 id="apache">6. Apache VirtualHost (proxy invers)</h2>
+
+<p>Configurem Apache com a proxy invers, igual que per Lab FC. Els m&ograve;duls necessaris probablement ja estan activats.</p>
+
+<h3>6.1 Activar m&ograve;duls necessaris</h3>
+<pre><code># Probablement ja activats per Lab FC
+sudo a2enmod proxy proxy_http rewrite
+sudo systemctl restart apache2</code></pre>
+
+<h3>6.2 Crear el VirtualHost</h3>
+<pre><code>sudo nano /etc/apache2/sites-available/comandes-venda.conf</code></pre>
+
+<p>Contingut:</p>
+<pre><code>&lt;VirtualHost *:80&gt;
+    ServerName comandes.agrienergia.local
+
+    # IMPORTANT: Permetre barres codificades (%2F) a les URLs
+    # L'aplicaci&oacute; usa URLs com /api/calcular/01/0002500
+    # que el navegador codifica com /api/calcular/01%2F0002500
+    AllowEncodedSlashes NoDecode
+
+    ProxyPreserveHost On
+    ProxyPass / http://127.0.0.1:5001/ nocanon
+    ProxyPassReverse / http://127.0.0.1:5001/
+
+    # Servir fitxers est&agrave;tics directament
+    Alias /static/ /var/www/comandes-venda/static/
+    &lt;Directory /var/www/comandes-venda/static/&gt;
+        Require all granted
+        Options -Indexes
+    &lt;/Directory&gt;
+
+    ErrorLog ${APACHE_LOG_DIR}/comandes-venda-error.log
+    CustomLog ${APACHE_LOG_DIR}/comandes-venda-access.log combined
+&lt;/VirtualHost&gt;</code></pre>
+
+<div class="danger">
+    <strong>CRÍTIC:</strong> Les directives <code>AllowEncodedSlashes NoDecode</code> i <code>nocanon</code> s&oacute;n <strong>imprescindibles</strong>. Sense elles, Apache rebutja amb error 404 les peticions de c&agrave;lcul de comandes (que contenen barres codificades a la URL).
+</div>
+
+<h3>6.3 Activar el site i reiniciar</h3>
+<pre><code># Activar el site
+sudo a2ensite comandes-venda.conf
+
+# Verificar configuraci&oacute;
+sudo apachectl configtest
+
+# Reiniciar Apache
+sudo systemctl reload apache2</code></pre>
+
+<!-- 7. XARXA I TALLAFOCS -->
+<h2 id="xarxa">7. Xarxa i tallafocs</h2>
+
+<div class="success">
+    Si Lab FC ja est&agrave; desplegat, la configuraci&oacute; de xarxa (IP fixa, UFW, DNS) ja estar&agrave; feta. Nom&eacute;s cal verificar i afegir l'entrada DNS per a la nova aplicaci&oacute;.
+</div>
+
+<h3>7.1 IP fixa (Netplan)</h3>
+<p>La VM ja ha de tenir una IP fixa configurada. Si no &eacute;s el cas:</p>
+<pre><code>sudo nano /etc/netplan/01-netcfg.yaml
+
+# Exemple de configuraci&oacute;:
+network:
+  version: 2
+  ethernets:
+    ens192:
+      dhcp4: false
+      addresses:
+        - 192.168.X.X/24
+      routes:
+        - to: default
+          via: 192.168.X.1
+      nameservers:
+        addresses: [192.168.X.X]
+
+sudo netplan apply</code></pre>
+
+<h3>7.2 Tallafocs (UFW)</h3>
+<p>Verificar que els ports necessaris estan oberts:</p>
+<pre><code># Comprovar estat
+sudo ufw status
+
+# Permetre Apache (probablement ja obert per Lab FC)
+sudo ufw allow 'Apache'
+
+# Permetre SSH (si no est&agrave; obert)
+sudo ufw allow OpenSSH
+
+# Verificar
+sudo ufw status verbose</code></pre>
+
+<div class="warning">
+    <strong>Important:</strong> NO cal obrir el port 5001 al tallafocs del servidor Linux. Gunicorn escolta a 127.0.0.1 i nom&eacute;s Apache hi accedeix internament.<br><br>
+    <strong>S&iacute; cal:</strong> Assegurar que el port <strong>50058</strong> est&agrave; obert al tallafocs del <strong>servidor Windows</strong> on corre SQL Server, per permetre connexions des del servidor Linux.
+</div>
+
+<h3>7.3 DNS</h3>
+<p>Cal afegir una entrada DNS perqu&egrave; els clients puguin accedir a <code>comandes.agrienergia.local</code>:</p>
+<ol>
+    <li><strong>Recomanat:</strong> Entrada al servidor DNS corporatiu</li>
+    <li><strong>Alternativa:</strong> Entrada al fitxer <code>/etc/hosts</code> de cada client</li>
+</ol>
+<pre><code># Exemple entrada DNS
+192.168.X.X    comandes.agrienergia.local</code></pre>
+
+<!-- 8. LLISTA DE VERIFICACIÓ -->
+<h2 id="verificacio">8. Llista de verificaci&oacute;</h2>
+
+<p>Executar totes les comprovacions abans de donar per finalitzat el desplegament:</p>
+
+<table>
+    <tr><th>#</th><th>Verificaci&oacute;</th><th>Comanda</th><th>Resultat esperat</th></tr>
+    <tr><td>1</td><td>Driver ODBC instal&middot;lat</td><td><code>odbcinst -q -d</code></td><td>[ODBC Driver 18...]</td></tr>
+    <tr><td>2</td><td>Repositori clonat</td><td><code>ls /var/www/comandes-venda/app.py</code></td><td>Fitxer existent</td></tr>
+    <tr><td>3</td><td>Fitxer .env creat</td><td><code>cat /var/www/comandes-venda/.env</code></td><td>Variables SQL_SERVER, etc.</td></tr>
+    <tr><td>4</td><td>Entorn virtual creat</td><td><code>ls /var/www/comandes-venda/venv/bin/python</code></td><td>Fitxer existent</td></tr>
+    <tr><td>5</td><td>Connexi&oacute; SQL OK</td><td>Pas 4.6 (script Python)</td><td>Connexi&oacute; OK</td></tr>
+    <tr><td>6</td><td>Servei actiu</td><td><code>systemctl status comandes-venda</code></td><td>active (running)</td></tr>
+    <tr><td>7</td><td>Port 5001 escoltant</td><td><code>ss -tlnp | grep 5001</code></td><td>LISTEN 127.0.0.1:5001</td></tr>
+    <tr><td>8</td><td>Apache respon</td><td><code>curl http://localhost/</code></td><td>HTML de l'app</td></tr>
+    <tr><td>9</td><td>API funciona</td><td><code>curl http://localhost:5001/api/ultimes-comandes</code></td><td>JSON amb "ok": true</td></tr>
+    <tr><td>10</td><td>P&agrave;gina carrega comandes</td><td>Obrir <code>http://comandes.agrienergia.local</code></td><td>Llista de comandes visible</td></tr>
+    <tr><td>11</td><td>C&agrave;lcul funciona</td><td>Clic a una comanda de la llista</td><td>Resultat amb embalatges</td></tr>
+</table>
+
+<h3>Verificaci&oacute; r&agrave;pida des del terminal</h3>
+<pre><code># 1. Servei actiu?
+systemctl is-active comandes-venda
+
+# 2. Port obert?
+ss -tlnp | grep 5001
+
+# 3. Resposta HTTP?
+curl -s -o /dev/null -w '%{http_code}' http://localhost:5001/
+# Ha de retornar: 200
+
+# 4. API funciona?
+curl -s http://localhost:5001/api/ultimes-comandes | python3 -m json.tool | head -5
+# Ha de retornar JSON amb "ok": true
+
+# 5. Connexi&oacute; SQL directa?
+telnet vkais 50058
+# Ha de connectar (no "Connection refused")</code></pre>
+
+<!-- 9. MANTENIMENT -->
+<h2 id="manteniment">9. Manteniment i actualitzacions</h2>
+
+<h3>9.1 Actualitzar l'aplicaci&oacute;</h3>
+<p>Quan hi hagi una nova versi&oacute; al repositori GitHub:</p>
+<pre><code>cd /var/www/comandes-venda
+sudo -u www-data git pull origin main
+sudo -u www-data venv/bin/pip install -r requirements.txt
+sudo systemctl restart comandes-venda</code></pre>
+
+<div class="info">
+    <strong>Nota:</strong> El fitxer <code>.env</code> no es veu afectat per les actualitzacions ja que no est&agrave; al repositori.
+</div>
+
+<h3>9.2 Actualitzaci&oacute; des del navegador</h3>
+<p>L'aplicaci&oacute; inclou un bot&oacute; d'actualitzaci&oacute; a la p&agrave;gina d'Ajuda (secci&oacute; Administraci&oacute;). Per activar-lo:</p>
+
+<p><strong>a) Afegir la clau d'administraci&oacute; al .env:</strong></p>
+<pre><code># Afegir aquesta línia al .env
+ADMIN_KEY=la_vostra_clau_secreta</code></pre>
+
+<p><strong>b) Permetre que www-data reinici&iuml; el servei sense contrasenya:</strong></p>
+<pre><code>sudo visudo -f /etc/sudoers.d/comandes-venda</code></pre>
+<p>Contingut:</p>
+<pre><code>www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart comandes-venda</code></pre>
+
+<p>Un cop configurat, qualsevol usuari pot actualitzar l'aplicaci&oacute; des de <code>comandes.agrienergia.local/ajuda</code> &rarr; secci&oacute; Administraci&oacute;, introduint la clau.</p>
+
+<div class="warning">
+    <strong>Important:</strong> La clau <code>ADMIN_KEY</code> nom&eacute;s la necessita qui actualitza l'aplicaci&oacute;. No cal compartir-la amb els usuaris normals.
+</div>
+
+<h3>9.3 Rotaci&oacute; de logs</h3>
+<pre><code>sudo nano /etc/logrotate.d/comandes-venda</code></pre>
+<p>Contingut:</p>
+<pre><code>/var/www/comandes-venda/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    copytruncate
+}</code></pre>
+
+<h3>9.4 C&ograve;pies de seguretat</h3>
+<p>Aquesta aplicaci&oacute; no t&eacute; base de dades local (es connecta a SQL Server remot). Nom&eacute;s cal fer c&ograve;pia de seguretat del fitxer <code>.env</code> si s'han modificat les credencials.</p>
+
+<!-- 10. LOGS -->
+<h2 id="logs">10. Logs i monitoratge</h2>
+
+<table>
+    <tr><th>Fitxer / Comanda</th><th>Contingut</th></tr>
+    <tr><td><code>/var/www/comandes-venda/motor.log</code></td><td>Log del motor (resultats, avisos, errors)</td></tr>
+    <tr><td><code>/var/www/comandes-venda/access.log</code></td><td>Log d'acc&eacute;s HTTP (Gunicorn)</td></tr>
+    <tr><td><code>/var/www/comandes-venda/error.log</code></td><td>Errors del servidor web (Gunicorn)</td></tr>
+    <tr><td><code>/var/log/apache2/comandes-venda-*.log</code></td><td>Logs d'Apache</td></tr>
+    <tr><td><code>journalctl -u comandes-venda</code></td><td>Logs del servei systemd</td></tr>
+</table>
+
+<pre><code># Logs del motor en temps real
+tail -f /var/www/comandes-venda/motor.log
+
+# Logs del servei
+journalctl -u comandes-venda -f --no-pager
+
+# Logs d'Apache
+tail -f /var/log/apache2/comandes-venda-error.log</code></pre>
+
+<!-- 11. TROUBLESHOOTING -->
+<h2 id="troubleshooting">11. Resoluci&oacute; de problemes</h2>
+
+<table>
+    <tr><th>Problema</th><th>Causa probable</th><th>Soluci&oacute;</th></tr>
+    <tr><td>"Carregant comandes..." indefinidament</td><td>No connecta a SQL Server</td><td>Verificar <code>.env</code> i connectivitat (pas 4.6)</td></tr>
+    <tr><td><code>Login timeout expired</code></td><td>Port SQL bloquejat pel firewall</td><td><code>telnet vkais 50058</code> &mdash; obrir port al firewall de Windows</td></tr>
+    <tr><td>Error 404 al fer clic a una comanda</td><td>Apache rebutja barres codificades</td><td>Afegir <code>AllowEncodedSlashes NoDecode</code> i <code>nocanon</code> (pas 6.2)</td></tr>
+    <tr><td>El servei no arrenca</td><td>Depend&egrave;ncies o .env absent</td><td><code>journalctl -u comandes-venda -n 50</code></td></tr>
+    <tr><td><code>Can't open lib ODBC 18</code></td><td>Driver no instal&middot;lat</td><td>Repetir pas 3.3</td></tr>
+    <tr><td><code>Login failed for user</code></td><td>Credencials SQL incorrectes</td><td>Revisar <code>.env</code> (contactar responsable)</td></tr>
+    <tr><td><code>Connection refused</code> a SQL</td><td>Firewall o port incorrecte</td><td><code>telnet vkais 50058</code></td></tr>
+    <tr><td>Error 502 Bad Gateway</td><td>Gunicorn no respon</td><td><code>sudo systemctl restart comandes-venda</code></td></tr>
+    <tr><td>P&agrave;gina no accessible</td><td>DNS o Apache</td><td><code>curl http://localhost:5001/</code></td></tr>
+</table>
+
+<h3>Comprovar connectivitat a SQL Server</h3>
+<pre><code># Verificar port accessible
+telnet vkais 50058
+
+# Provar connexi&oacute; des de l'app
+cd /var/www/comandes-venda
+sudo -u www-data venv/bin/python -c "
+from consultes import connectar
+conn = connectar()
+print('Connexi&oacute; OK')
+conn.close()
+"</code></pre>
+
+<!-- 12. RESUM I TEMPS ESTIMATS -->
+<h2 id="resum">12. Resum i temps estimats</h2>
+
+<p>Temps estimats assumint que Lab FC ja est&agrave; desplegat al servidor (Python, Apache, UFW ja configurats):</p>
+
+<table>
+    <tr><th>Pas</th><th>Descripci&oacute;</th><th>Temps estimat</th></tr>
+    <tr><td>3.3-3.4</td><td>Instal&middot;lar driver ODBC 18</td><td>5 min</td></tr>
+    <tr><td>4.1-4.3</td><td>Clonar repo, crear .env i entorn virtual</td><td>10 min</td></tr>
+    <tr><td>4.4-4.6</td><td>Configuraci&oacute; i verificaci&oacute; SQL</td><td>5 min</td></tr>
+    <tr><td>5</td><td>Servei systemd</td><td>5 min</td></tr>
+    <tr><td>6</td><td>Apache VirtualHost</td><td>5 min</td></tr>
+    <tr><td>7</td><td>DNS (entrada nova)</td><td>5 min</td></tr>
+    <tr><td>8</td><td>Verificaci&oacute;</td><td>5 min</td></tr>
+    <tr><td></td><td><strong>TOTAL ESTIMAT</strong></td><td><strong>30-40 min</strong></td></tr>
+</table>
+
+<p>Si es tracta d'una instal&middot;laci&oacute; completa (sense Lab FC previ), afegir ~20 minuts addicionals per instal&middot;lar Python, Apache, configurar UFW i IP fixa.</p>
+
+<h3>Comparativa de serveis al servidor</h3>
+<table>
+    <tr><th></th><th>Lab FC</th><th>Comandes Venda</th></tr>
+    <tr><td>Directori</td><td><code>/var/www/lab-fc</code></td><td><code>/var/www/comandes-venda</code></td></tr>
+    <tr><td>Servei</td><td><code>lab-fc.service</code></td><td><code>comandes-venda.service</code></td></tr>
+    <tr><td>Port intern</td><td>8000</td><td>5001</td></tr>
+    <tr><td>ServerName</td><td><code>labfc.agrienergia.local</code></td><td><code>comandes.agrienergia.local</code></td></tr>
+    <tr><td>Base de dades</td><td>PostgreSQL (local)</td><td>SQL Server (remot, port 50058)</td></tr>
+    <tr><td>Usuari SO</td><td>www-data</td><td>www-data</td></tr>
+</table>
+
+<div class="footer">
+    Motor de Preparaci&oacute; de Comandes de Venda &mdash; Guia de Desplegament v10 &mdash; Abril 2026
+</div>
+
+</body>
+</html>

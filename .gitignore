@@ -1,0 +1,14 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.csv
+*.docx
+*.log
+.pytest_cache/
+.mypy_cache/
+instance/
+.flask_session/
+Thumbs.db

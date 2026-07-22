@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQL Stats - Motor de Comandes</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f0f2f5; color: #1a1a2e; padding: 2rem; }
+        h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+        .card { background: #fff; border-radius: 12px; padding: 1.2rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .card .label { font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 0.05em; }
+        .card .value { font-size: 2rem; font-weight: 700; margin-top: 0.3rem; }
+        .card .value.ok { color: #16a34a; }
+        .card .value.warn { color: #d97706; }
+        .card .value.error { color: #dc2626; }
+        .table-wrap { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+        .table-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.2rem; border-bottom: 1px solid #e5e7eb; }
+        .table-header h2 { font-size: 1.1rem; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th { text-align: left; padding: 0.7rem 1.2rem; background: #f9fafb; color: #666; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
+        td { padding: 0.6rem 1.2rem; border-top: 1px solid #f0f0f0; }
+        tr:hover { background: #f9fafb; }
+        .ms { font-family: 'Consolas', monospace; font-weight: 600; }
+        .ms.fast { color: #16a34a; }
+        .ms.medium { color: #d97706; }
+        .ms.slow { color: #dc2626; }
+        .sql-text { font-family: 'Consolas', monospace; font-size: 0.8rem; color: #444; max-width: 600px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .error-tag { background: #fef2f2; color: #dc2626; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+        .ts { color: #888; font-family: 'Consolas', monospace; }
+        .btn { padding: 0.4rem 1rem; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+        .btn-reset { background: #fee2e2; color: #dc2626; }
+        .btn-reset:hover { background: #fecaca; }
+        .btn-refresh { background: #dbeafe; color: #2563eb; }
+        .btn-refresh:hover { background: #bfdbfe; }
+        .auto-label { font-size: 0.8rem; color: #888; margin-left: 0.5rem; }
+        .bar { height: 6px; border-radius: 3px; background: #e5e7eb; margin-top: 0.3rem; }
+        .bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+    </style>
+</head>
+<body>
+    <h1>Monitoritzacio SQL - Motor de Comandes</h1>
+
+    <div class="cards">
+        <div class="card">
+            <div class="label">Total queries</div>
+            <div class="value" id="total-queries">-</div>
+        </div>
+        <div class="card">
+            <div class="label">Temps mitja</div>
+            <div class="value" id="avg-time">-</div>
+            <div class="bar"><div class="bar-fill" id="avg-bar" style="width:0"></div></div>
+        </div>
+        <div class="card">
+            <div class="label">Temps total</div>
+            <div class="value" id="total-time">-</div>
+        </div>
+        <div class="card">
+            <div class="label">Errors</div>
+            <div class="value" id="errors">-</div>
+        </div>
+        <div class="card">
+            <div class="label">Usuaris actius</div>
+            <div class="value" id="active-users">-</div>
+        </div>
+        <div class="card">
+            <div class="label">Background refresh</div>
+            <div class="value" id="refresh-status" style="font-size:1rem">-</div>
+        </div>
+    </div>
+
+    <div class="table-wrap" style="margin-bottom:1.5rem">
+        <div class="table-header">
+            <h2>Connexions</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>IP</th>
+                    <th>Ultim request</th>
+                    <th>Fa</th>
+                    <th>Estat</th>
+                </tr>
+            </thead>
+            <tbody id="client-rows">
+            </tbody>
+        </table>
+    </div>
+
+    <div class="table-wrap">
+        <div class="table-header">
+            <h2>Ultimes queries</h2>
+            <div>
+                <button class="btn btn-refresh" onclick="refresh()">Refrescar</button>
+                <button class="btn btn-reset" onclick="resetStats()">Reiniciar comptadors</button>
+                <span class="auto-label">Auto-refresh: 10s</span>
+            </div>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:80px">Hora</th>
+                    <th style="width:100px">Temps</th>
+                    <th>Query</th>
+                    <th style="width:80px">Estat</th>
+                </tr>
+            </thead>
+            <tbody id="query-rows">
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+    function identifyQuery(sql) {
+        return sql;
+    }
+
+    function formatTime(ts) {
+        // ts és un Unix timestamp en segons, convertir a hora local del navegador
+        const d = new Date(ts * 1000);
+        return d.toLocaleTimeString("ca-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+
+    function msClass(ms) {
+        if (ms < 100) return "fast";
+        if (ms < 500) return "medium";
+        return "slow";
+    }
+
+    function formatMs(ms) {
+        if (ms >= 1000) return (ms / 1000).toFixed(1) + "s";
+        return ms.toFixed(0) + "ms";
+    }
+
+    function render(data) {
+        document.getElementById("total-queries").textContent = data.total_queries;
+        document.getElementById("total-queries").className = "value";
+
+        const avg = data.avg_time_ms;
+        document.getElementById("avg-time").textContent = formatMs(avg);
+        document.getElementById("avg-time").className = "value " + (avg < 100 ? "ok" : avg < 500 ? "warn" : "error");
+        const barPct = Math.min(avg / 1000 * 100, 100);
+        const bar = document.getElementById("avg-bar");
+        bar.style.width = barPct + "%";
+        bar.style.background = avg < 100 ? "#16a34a" : avg < 500 ? "#d97706" : "#dc2626";
+
+        document.getElementById("total-time").textContent = formatMs(data.total_time_ms);
+        document.getElementById("total-time").className = "value";
+
+        const errEl = document.getElementById("errors");
+        errEl.textContent = data.errors;
+        errEl.className = "value " + (data.errors === 0 ? "ok" : "error");
+
+        const tbody = document.getElementById("query-rows");
+        // Mostrar les queries en ordre invers (més recent primer)
+        const rows = [...data.recent].reverse();
+        tbody.innerHTML = rows.map(q => `
+            <tr>
+                <td class="ts">${formatTime(q.ts)}</td>
+                <td><span class="ms ${msClass(q.ms)}">${formatMs(q.ms)}</span></td>
+                <td><span class="sql-text" title="${q.sql.replace(/"/g, '&quot;')}">${identifyQuery(q.sql)}</span></td>
+                <td>${q.error ? '<span class="error-tag">' + q.error.substring(0, 30) + '</span>' : 'OK'}</td>
+            </tr>
+        `).join("");
+    }
+
+    async function refresh() {
+        try {
+            const [statsResp, clientsResp] = await Promise.all([
+                fetch("/api/admin/sql-stats"),
+                fetch("/api/admin/clients"),
+            ]);
+            const stats = await statsResp.json();
+            const clients = await clientsResp.json();
+            if (stats.ok) render(stats);
+            if (clients.ok) renderClients(clients);
+        } catch (e) { console.error(e); }
+    }
+
+    function renderClients(data) {
+        document.getElementById("active-users").textContent = data.total_active;
+        document.getElementById("active-users").className = "value " + (data.total_active === 0 ? "ok" : "");
+
+        const statusEl = document.getElementById("refresh-status");
+        statusEl.textContent = data.total_active > 0 ? "SOTA DEMANDA" : "INACTIU";
+        statusEl.className = "value ok";
+
+        const tbody = document.getElementById("client-rows");
+        tbody.innerHTML = data.clients.map(c => `
+            <tr>
+                <td class="ts">${c.ip}</td>
+                <td class="sql-text">${c.last_path}</td>
+                <td>${c.seconds_ago}s</td>
+                <td>${c.active ? '<span style="color:#16a34a;font-weight:600">Actiu</span>' : '<span style="color:#888">Inactiu</span>'}</td>
+            </tr>
+        `).join("");
+    }
+
+    async function resetStats() {
+        if (!confirm("Reiniciar tots els comptadors?")) return;
+        await fetch("/api/admin/sql-stats/reset", { method: "POST" });
+        refresh();
+    }
+
+    refresh();
+    setInterval(refresh, 10000);
+    </script>
+</body>
+</html>
