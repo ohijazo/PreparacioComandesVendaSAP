@@ -286,3 +286,63 @@ Els codis d'article a Kais coincideixen amb `OITM.ItemCode` a SAP (mateix codi n
 ### Observació sobre el bug de Kais
 
 El bug latent a la variant Kais (`consultes.py:200-202`) es **coneix però NO es corregeix** des d'aquest projecte per la restricció explícita de no tocar `P:\preparacioComandesVenda`. Convindria comunicar-lo a l'equip que manté Kais per si volen corregir-lo (canviar `'ARTICE_ESPECIAL'` → `'DIMENSIO_ESPECIAL'` i `'ARTICLE_ESPECIFIC'` → `'COMANDA MÍNIMA PRODUCCIÓ'`).
+
+---
+
+## §1.10 Fase 1.6 — Bug al VBA `Módulo1.bas` (2026-07-23)
+
+### Descoberta
+
+Investigant per què `QryGroup3` (Sac 25 Especial) i `QryGroup4` (Sac Colagne Especial) tenien 0 articles marcats a SAP (malgrat que a Kais hi ha 13 i 41 articles respectivament amb valor SI), es va comprovar que:
+
+1. El **xlsm mateix** (`P:\VBA\OITM\OITM - Items1.xlsm`, fulla BP) també té 0 articles amb `tYES` a les columnes EE i EF. Vol dir que el problema no era la pujada DT sinó la **generació del xlsm per la macro VBA**.
+2. La macro `P:\VBA\OITM\Módulo1.bas` **cerca a la columna equivocada** de la fulla InfoAnex:
+   - Columnes InfoAnex: A=`INF_TIPO`, **B=`INF_TITULO`**, **C=`art_codi`**, D=`INF_VALOR`.
+   - Els blocs `dictSacEspec` (línies 128-140) i `dictProducteE` (línies 142-153) llegien `wsInfoAnex.Cells(n, "C")` (art_codi) i comparaven amb prefixos `"SAC__ESPEC"` / `"PRODUCTE_E_7G6115Z5T"` — que són valors de `INF_TITULO` (columna B). Cap art_codi comença per aquests prefixos → **0 coincidències**.
+3. En canvi, el bloc `dictArticeEsp` (línies 116-126) llegia correctament de columna B, i per això `QryGroup2` (Dimensió especial) sí que tenia 21 articles marcats.
+
+### Fix aplicat (2026-07-23)
+
+Fitxer: `P:\VBA\OITM\Módulo1.bas`. Dos blocs corregits perquè segueixin el mateix patró que `dictArticeEsp` (que ja funcionava):
+
+**Línies 128-142** (`dictSacEspec`):
+```vba
+' Ara llegeix INF_TITULO de col B; si coincideix, agafa art_codi de col C:
+valB = Trim(CStr(wsInfoAnex.Cells(n, "B").Value))
+If Len(valB) >= 10 Then
+    If UCase(Left(valB, 10)) = "SAC__ESPEC" Then
+        If Trim(CStr(wsInfoAnex.Cells(n, "D").Value)) <> "" Then
+            valC = Trim(CStr(wsInfoAnex.Cells(n, "C").Value))
+            If Len(valC) > 0 Then dictSacEspec(valC) = True
+        End If
+    End If
+End If
+```
+
+**Línies 144-156** (`dictProducteE`): mateix patró.
+
+**Línies 399-404 i 407-412**: actualitzats els comentaris explicatius (només documentació).
+
+### Passos pendents (executor: usuari)
+
+1. Obrir `P:\VBA\OITM\OITM - Items1.xlsm` amb Excel.
+2. Executar la macro del `Módulo1` (`Alt+F8` → executar procediment principal).
+3. Verificar que la columna EE ara té ~13 `tYES` i la EF ~41 `tYES`.
+4. Pujar el xlsm actualitzat a SAP via Data Transfer Workbench (mateix flux habitual).
+
+### Verificació post-import (per Claude un cop pujat)
+
+Queries SAP (read-only):
+```sql
+SELECT COUNT(*) FROM OITM WHERE QryGroup3='Y';  -- esperar ≈13
+SELECT COUNT(*) FROM OITM WHERE QryGroup4='Y';  -- esperar ≈41
+```
+
+Re-executar el batch de comandes reals de §1.9 i observar canvis de comportament:
+- Comandes amb articles marcats `QG3='Y'` haurien de veure RF6 aplicada (base=8, palet basepalet).
+- Comandes amb articles marcats `QG4='Y'`: cap canvi al motor de moment (encara usa proxy `U_SEIFamCialCat`).
+
+### Notes col·laterals
+
+- **`dictAprovision` (línies 155-166)** també cerca a col C erròniament, però NO s'utilitza per omplir cap columna del BP (només carrega el diccionari). Cerca inefectiva sense impacte visible. No corregit (fora d'aquest scope).
+- **QG4 populació col·lateral (41 articles)**: encara que el motor Python usa proxy `U_SEIFamCialCat='MOULIN DE COLAGNE'`, tindrem QG4 com font autoritativa disponible per si un dia volem canviar-hi.
