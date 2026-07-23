@@ -346,3 +346,72 @@ Re-executar el batch de comandes reals de §1.9 i observar canvis de comportamen
 
 - **`dictAprovision` (línies 155-166)** també cerca a col C erròniament, però NO s'utilitza per omplir cap columna del BP (només carrega el diccionari). Cerca inefectiva sense impacte visible. No corregit (fora d'aquest scope).
 - **QG4 populació col·lateral (41 articles)**: encara que el motor Python usa proxy `U_SEIFamCialCat='MOULIN DE COLAGNE'`, tindrem QG4 com font autoritativa disponible per si un dia volem canviar-hi.
+
+---
+
+## §1.11 Fase 1.7 — Reversió de RF4 + fix VBA QG4 (2026-07-23)
+
+### Verificació post-import QG3/QG4
+
+- **QG3 (Sac 25 Especial)**: 13/13 coincident amb Kais (`SAC__ESPEC='SI'`) ✅.
+- **QG4 (Sac Colagne Especial)**: 41 marcats a SAP vs 11 correctes a Kais (`PRODUCTE_E_7G6115Z5T='SI'`). **Segon bug al VBA**: `dictProducteE` marca com Y qualsevol article amb valor no buit (inclou `'NO'`).
+
+### Bug latent al motor destapat per RF4
+
+Amb `dimensio_especial=True` activat per la variant SAP (via QG2), s'ha destapat un bug al motor compartit `regles.py` (RF4 apilament). Casos crítics detectats al batch:
+
+| Comanda | Sacs demanats | Sacs col·locats (RF4 actiu) | Sacs perduts |
+|---|---|---|---|
+| 268/26600093 | 2400 | 1500 | **900** ❌ |
+| 268/26600090 | 65 | 41 | **24** ❌ |
+| 268/26600092 | 7075 | 7075 | 0 (només compactació) |
+| 268/26600078 | 1935 | 1935 | 0 (només compactació) |
+| 268/26600071 | 3035 | 3035 | 0 (només compactació) |
+
+**Diagnòstic**: RF4 barreja `33010` (dimensio_especial=True) amb `40450` als palets del segon article (6 sacs de 33010 sobre 24 de 40450), però només processa 50 palets × 6 = 300 sacs — la resta (900) queden sense col·locar. No forma palets propis pels sacs restants.
+
+A Kais aquest bug **mai s'havia manifestat** perquè RF4 tampoc s'aplica allà (bug al mapatge `INF_CONCEPTO`, §1.9). En activar RF4 a SAP el bug del motor emergeix.
+
+### Decisions preses (Oscar 2026-07-23)
+
+- **Opció A — Revertir RF4 a SAP**: `dimensio_especial=False` sempre. Reversió selectiva de la Fase 1.5 (només RF4; RF6 es manté activa). Sense pèrdua de sacs. Comportament idèntic a Kais.
+- **Opció C — Fix VBA QG4**: `dictProducteE` només marca `SI` (no `NO`). Deixa les dades de SAP netes (11 articles en lloc de 41), aunque el motor no llegeix QG4 actualment.
+
+### Canvis aplicats
+
+**Codi Python** `P:\preparacioComandesVendaSAP\consultes.py`:
+- `_row_to_linia`: `dimensio_especial=False` (amb comentari explicant el motiu).
+- La lectura de `QryGroup2` al `_LINIES_SELECT` es manté — mantenim la infraestructura llesta per si algun dia es corregeix el bug del motor.
+
+**VBA** `P:\VBA\OITM\Módulo1.bas` (línia 150):
+- Abans: `If Trim(CStr(wsInfoAnex.Cells(n, "D").Value)) <> "" Then`
+- Ara: `If UCase(Trim(CStr(wsInfoAnex.Cells(n, "D").Value))) = "SI" Then`
+- Comentari actualitzat per explicar que el camp té valors `'SI'` i `'NO'`.
+
+### Verificació
+
+- **Tests unitaris**: 71/71 OK.
+- **Batch de comandes reals**:
+
+| Comanda | Palets pre-A | Palets post-A | Sacs col·locats |
+|---|---|---|---|
+| 26600093 | 50 | **100** | 2400 ✅ |
+| 26600090 | 1 | **2** | 65 ✅ |
+| 26600092 | 164 | **189** | 7075 ✅ |
+| 26600078 | 45 | **47** | 1935 ✅ |
+| 26600071 | 77 | **84** | 3035 ✅ |
+| 26600064 | 6 | **8** | 320 ✅ |
+
+Els sacs col·locats coincideixen amb els demanats en totes les comandes. RF6 segueix activa (les distribucions no són idèntiques a la Fase 1 original — RF6 aplica la seva pròpia config per articles amb `sac_25_especial=True`).
+
+### Passos pendents (executor: usuari)
+
+Per l'Opció C, cal re-executar el flux:
+1. Obrir `P:\VBA\OITM\OITM - Items1.xlsm`.
+2. Executar la macro del `Módulo1` (`Alt+F8`).
+3. Verificar que la columna EF (QG4) ara té **11 tYES** (en lloc dels 41).
+4. Pujar a SAP via DT els articles que canvien (11 mantenen Y + 30 que passen a N).
+
+### Bug pendent al motor (per si algun dia es corregeix)
+
+RF4 apilament té un bug conegut a `regles.py` (fitxer compartit amb Kais, intocable des d'aquest projecte). Cal reportar-lo a l'equip Kais si algú vol RF4 funcional al futur. Mentrestant, RF4 queda desactivada a la variant SAP i mai va estar activa a Kais.

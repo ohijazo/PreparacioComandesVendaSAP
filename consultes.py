@@ -463,13 +463,13 @@ def _row_to_linia(r) -> Linia:
         # de mapatge INF_CONCEPTO que impedeix que s'apliqui allà — replica'm el
         # comportament (decisió Oscar 2026-07-23). Vegi tasks/validacio_sap.md §1.5.
         comanda_minima_produccio=None,
-        # RF4 dimensio_especial: OITM.QryGroup2 ja té les 21 dades migrades des de
-        # Kais via VBA. Kais no llegia el camp per un bug (INF_CONCEPTO='ARTICE_ESPECIAL'
-        # que no existeix); la variant SAP el corregeix.
-        dimensio_especial=(r.dimensio_especial_flag == 'Y'),
-        # RF6 sac_25_especial: OITM.QryGroup3. Cal migració manual de les 13 files
-        # de Kais (SAC__ESPEC_7FJ0L0CG3='SI') a SAP; fins que no es faci, el flag
-        # sempre serà False.
+        # RF4 (dimensio_especial) DESACTIVADA (decisió Oscar 2026-07-23, §1.11).
+        # Motiu: RF4 té un bug latent al motor `regles.py` (apilament perd sacs);
+        # a Kais mai s'ha manifestat perquè allà RF4 tampoc s'aplica (bug al mapatge
+        # INF_CONCEPTO). Mantenim el flag del SELECT llegit per poder-lo reactivar
+        # trivialment un cop es corregeixi el bug del motor.
+        dimensio_especial=False,  # abans: (r.dimensio_especial_flag == 'Y')
+        # RF6 sac_25_especial: OITM.QryGroup3 (13 articles migrats des de Kais).
         sac_25_especial=(r.sac_25_especial_flag == 'Y'),
         # `sac_colagne_normal` derivat de la família comercial fins que hi hagi UDF explícit.
         sac_colagne_normal=(fam == _FAM_COLAGNE.upper()),
