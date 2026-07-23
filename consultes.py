@@ -429,6 +429,8 @@ _LINIES_SELECT = """
         i.U_SEIUnitatsApilables AS cantidadapilable,
         RTRIM(i.U_SEIPaletProd) AS palet_producte_estoc_raw,
         RTRIM(i.U_SEIFamCialCat) AS fam_cial_cat,
+        i.QryGroup2 AS dimensio_especial_flag,
+        i.QryGroup3 AS sac_25_especial_flag,
         RTRIM(l.WhsCode) AS magatzem,
         h.Series AS series, h.DocNum AS docnum
     FROM ORDR h WITH (NOLOCK)
@@ -457,10 +459,18 @@ def _row_to_linia(r) -> Linia:
         uxc=float(r.uxc) if r.uxc is not None else None,
         pes=float(r.pes) if r.pes is not None else None,
         cantidadapilable=int(r.cantidadapilable) if r.cantidadapilable is not None else None,
-        # UDFs pendents (crear amb el consultor SAP): fallback conservador.
+        # RF3 (comanda_minima_produccio) desactivada a SAP: Kais mateix té un bug
+        # de mapatge INF_CONCEPTO que impedeix que s'apliqui allà — replica'm el
+        # comportament (decisió Oscar 2026-07-23). Vegi tasks/validacio_sap.md §1.5.
         comanda_minima_produccio=None,
-        dimensio_especial=False,
-        sac_25_especial=False,
+        # RF4 dimensio_especial: OITM.QryGroup2 ja té les 21 dades migrades des de
+        # Kais via VBA. Kais no llegia el camp per un bug (INF_CONCEPTO='ARTICE_ESPECIAL'
+        # que no existeix); la variant SAP el corregeix.
+        dimensio_especial=(r.dimensio_especial_flag == 'Y'),
+        # RF6 sac_25_especial: OITM.QryGroup3. Cal migració manual de les 13 files
+        # de Kais (SAC__ESPEC_7FJ0L0CG3='SI') a SAP; fins que no es faci, el flag
+        # sempre serà False.
+        sac_25_especial=(r.sac_25_especial_flag == 'Y'),
         # `sac_colagne_normal` derivat de la família comercial fins que hi hagi UDF explícit.
         sac_colagne_normal=(fam == _FAM_COLAGNE.upper()),
         aprovisionament_estoc=palet_estoc is not None,

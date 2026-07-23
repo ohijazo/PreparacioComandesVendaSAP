@@ -16,6 +16,7 @@ Pla vinculat: `C:\Users\ohijazo.AGRIENERGIA\.claude\plans\la-idea-era-que-partit
 | 1.6 | Matriu UDFs presents/NULL/absents | ⚠ **Buit crític** |
 | 1.7 | Comparació Kais vs SAP | 🟡 Requereix acció usuari |
 | 1.8 | Aquest report | ✅ OK |
+| **1.9** | **Fase 1.5 — Bug Kais + activació RF4/RF6 a SAP** | **✅ Tancada 2026-07-23** |
 
 **Bug crític trobat i arreglat**: deadlock del semàfor pyodbc a `obtenir_palet_client`. Ara la variant SAP calcula correctament totes les comandes provades.
 
@@ -114,19 +115,26 @@ Les proves inicials amb HTTP a Flask van penjar el servidor de manera intermiten
 
 ### UDFs OITM (articles)
 
-| UDF esperat pel motor | Camp SAP | Present | Amb valor | Total | Estat |
+| Camp del motor | Camp SAP | Present | Amb valor | Total | Estat |
 |---|---|---|---|---|---|
 | `uxc` | `U_SEIUnitatsPalet` | ✅ | 658 | 2027 | OK |
 | `cantidadapilable` | `U_SEIUnitatsApilables` | ✅ | 58 | 2027 | OK |
 | `palet_producte_estoc` | `U_SEIPaletProd` | ✅ | 88 | 2027 | OK |
 | `sac_colagne_normal` | derivat de `U_SEIFamCialCat='MOULIN DE COLAGNE'` | ⚠ | 40 | 2027 | Proxy (no UDF explícit) |
-| `dimensio_especial` | *(cap)* | ❌ | — | — | **RF4 no s'aplicarà** |
-| `sac_25_especial` | *(cap)* | ❌ | — | — | **RF6 no s'aplicarà** |
-| `comanda_minima_produccio` | *(cap)* | ❌ | — | — | **RF3 no s'aplicarà** |
+| `dimensio_especial` | **`OITM.QryGroup2`** (standard SAP) | ✅ | 21 | 2027 | **Utilitzable** — descobert via VBA .bas 2026-07-23 |
+| `sac_25_especial` | **`OITM.QryGroup3`** (standard SAP) | ⚠ | **0** | 2027 | Camp existeix però buit — cal repoblar amb dades Kais |
+| `comanda_minima_produccio` | *(cap adequat)* | ❌ | — | — | `MinOrdrQty` és MOQ de compra, no serveix. Cal UDF nou (p.ex. `U_SEIMinKgProduccio`, int) |
 
-Fallback conservador a `consultes.py:461-463`: `comanda_minima_produccio=None`, `dimensio_especial=False`, `sac_25_especial=False`. Els articles sempre es processen amb aquests valors → RF3, RF4 i RF6 mai s'activen a SAP fins que es creïn els UDFs corresponents.
+**Descobriment 2026-07-23 (via anàlisi de `P:\VBA\OITM\Módulo1.bas` i template `OITM - Items1 AE.xlsx`)**:
+- Les columnes BP.xlsx `ED`, `EE`, `EF` corresponen a `QryGroup2`, `QryGroup3`, `QryGroup4` (Query Groups natius SAP), NO a UDFs.
+- Mapatge InfoAnex Kais → BP.xlsx → SAP:
+  - InfoAnex `ARTICE_ESP` → BP.xlsx `ED` → `OITM.QryGroup2` (Y/N) = `dimensio_especial`.
+  - InfoAnex `SAC__ESPEC` → BP.xlsx `EE` → `OITM.QryGroup3` (Y/N) = `sac_25_especial`.
+  - InfoAnex `ES_PALET` → BP.xlsx `EC` → `OITM.QryGroup1` (Y/N) = flag "és un palet" (7 articles marcats).
 
-**UDFs U_SEI\* addicionals a OITM disponibles** (no usats): `U_SEICadLot`, `U_SEIFamCialCast`, `U_SEIObserCast`, `U_SEIObserCat`, `U_SEIObserTec`, `U_SEISubFamCialCast`, `U_SEISubFamCialCat`. Cap sembla equivalent als 3 pendents.
+Fallback actual a `consultes.py:461-463`: `comanda_minima_produccio=None`, `dimensio_especial=False`, `sac_25_especial=False`. RF3, RF4 i RF6 romanen inactives fins que s'afegeixi la lectura de `QryGroup2`, `QryGroup3` i (per RF3) es creï un UDF nou.
+
+**UDFs U_SEI\* addicionals a OITM (no usats pel motor)**: `U_SEICadLot`, `U_SEIFamCialCast`, `U_SEIObserCast`, `U_SEIObserCat`, `U_SEIObserTec`, `U_SEISubFamCialCast`, `U_SEISubFamCialCat`. Cap útil per RF3.
 
 ### UDFs CRD1 (direccions client)
 
@@ -170,12 +178,10 @@ Cap dels UDFs esperats per la Fase 2 (`U_SEIEmbalatgeResum`, `U_SEIEmbalatgeEsta
 
 ### ✅ Anar a Fase 2? **SÍ, amb 3 condicions prèvies:**
 
-1. **Bloquejant per RF3/RF4/RF6**: crear amb el consultor SAP els UDFs mancants a OITM:
-   - `U_SEIDimensioEspecial` (bit o Y/N) — per `dimensio_especial`.
-   - `U_SEISac25Especial` (bit o Y/N) — per `sac_25_especial`.
-   - `U_SEIComandaMinimaProd` (int, kg) — per `comanda_minima_produccio`.
-   
-   Un cop creats, afegir la lectura a `consultes.py:_row_to_linia` (10 línies de codi). Sense això, aquestes regles mai s'apliquen a SAP.
+1. **Bloquejant per RF3/RF4/RF6** (revisat 2026-07-23 post-anàlisi VBA):
+   - **RF4** (`dimensio_especial`): ✅ NO cal UDF nou. Usar `OITM.QryGroup2` (21 articles ja marcats). Cal afegir lectura a `consultes.py:_row_to_linia`.
+   - **RF6** (`sac_25_especial`): ⚠ `OITM.QryGroup3` existeix però buit. Cal repoblar amb dades Kais (executar/adaptar macro VBA existent) i afegir lectura a `consultes.py`.
+   - **RF3** (`comanda_minima_produccio`): ❌ Sí que cal crear un UDF nou (ex. `U_SEIMinKgProduccio`, int) — no hi ha camp SAP equivalent. `MinOrdrQty` NO serveix (és MOQ de compra a proveïdor, no comanda mínima Kais).
 
 2. ~~**Bloquejant per RF13**~~ **✅ Resolt 2026-07-23**: mapping confirmat — codis Kais 8 dígits `00301614` → SAP 6 dígits `C301614` (`ACID CAFE BERLIN GMBH`). Fix aplicat a `_bootstrap.py`: nova funció `_apply_sap_overrides()` afegeix dinàmicament les entrades SAP a `regles.OVERRIDES_PALET_CLIENT` sense tocar `regles.py` (fitxer compartit amb Kais). Tests 71/71 OK.
 
@@ -214,3 +220,69 @@ fix: deadlock pyodbc + mapatge codis client Kais→SAP
 
 Detectat validant càlculs contra BD SAP real (comanda 268/26600093).
 ```
+
+---
+
+## §1.9 Fase 1.5 — Bug de Kais i activació de RF4/RF6 a SAP (2026-07-23)
+
+### Descobriment del bug de Kais
+
+Analitzant per què "faltaven" 3 UDFs a SAP, es va detectar un bug latent a la variant Kais:
+
+- `P:\preparacioComandesVenda\consultes.py:200-202` fa `WHERE INF_CONCEPTO IN ('ARTICE_ESPECIAL', 'SAC_25_ESPECIAL', 'ARTICLE_ESPECIFIC', 'APROVISIONAMENT', 'SAC_COLAGNE_ NORMAL')`.
+- Però a la BD Kais **no existeixen** `ARTICE_ESPECIAL` ni `ARTICLE_ESPECIFIC`. Els noms reals són `DIMENSIO_ESPECIAL` (títol `ARTICE_ESP_7FJ0KZTDV`, 21 articles amb dades) i `COMANDA MÍNIMA PRODUCCIÓ` (títol `ARTICLE_ES_7FJ0L1ULT`, 32 articles amb kg 500-1000).
+- Conseqüència: `titols["DIMENSIO_ESPECIAL"]` i `titols["ARTICLE_ESPECIFIC"]` mai s'assignen → **RF3 (comanda mínima producció) i RF4 (dimensió especial) mai s'apliquen a Kais**.
+
+Notablement, l'import massiu Kais → SAP via `P:\VBA\OITM\Módulo1.bas` cerca per **INF_TITULO** (començant per `ARTICE_ESP`), NO per `INF_CONCEPTO` — per això va migrar correctament els 21 articles de dimensió especial a `OITM.QryGroup2` a SAP, malgrat el motor Kais no els llegís.
+
+### Estat real de RF3, RF4, RF6
+
+| Regla | Kais | SAP | Dades disponibles |
+|---|---|---|---|
+| RF3 (`comanda_minima_produccio`) | ❌ Bug | ❌ | 32 articles a Kais (kg 500-1000). No hi ha camp SAP. |
+| RF4 (`dimensio_especial`) | ❌ Bug | ✅ `OITM.QryGroup2` (21 articles) | Migrat pel VBA `.bas` |
+| RF6 (`sac_25_especial`) | ✅ Funciona | ⚠ `OITM.QryGroup3` **buit** | 13 articles a Kais pendents de migrar |
+
+### Decisions preses (Oscar 2026-07-23)
+
+- **RF3**: **NO activar** a SAP. Mantenir com Kais actual. No es crea UDF ni es migra res. La regla queda inactiva en ambdues variants (comportament actual d'operativa que ja funciona).
+- **RF4**: **Activar** a SAP. Les dades ja hi són. Codi Python modificat per llegir `QryGroup2`.
+- **RF6**: **Activar** a SAP (pendent migració de 13 articles al `QryGroup3`, fora d'aquesta app). Codi Python ja llegeix `QryGroup3`, però romandrà sempre `False` fins que el consultor SAP faci la migració.
+
+### Canvis aplicats a codi (variant SAP)
+
+`P:\preparacioComandesVendaSAP\consultes.py`:
+
+- `_LINIES_SELECT`: afegides 2 columnes `i.QryGroup2 AS dimensio_especial_flag`, `i.QryGroup3 AS sac_25_especial_flag`.
+- `_row_to_linia`: `dimensio_especial=(r.dimensio_especial_flag == 'Y')`, `sac_25_especial=(r.sac_25_especial_flag == 'Y')`.
+- `comanda_minima_produccio=None` es queda igual (RF3 desactivada).
+- Comentaris afegits per explicar el context.
+
+### Verificació
+
+- **Tests unitaris**: 71/71 OK (els tests mockejen les dades).
+- **Comandes reals amb articles QG2='Y'**: es van triar 3 comandes obertes que inclouen articles amb dimensió especial:
+  - `268/26600116` (SEMOLA FINA): CALCULAT, 1 palet.
+  - `268/26600081` (SEGO): CALCULAT, 9 palets.
+  - `268/26600078` (SEMOLA FINA + ESPELTA BLANCA + T80): **canvi de 46 → 45 palets** respecte Fase 1 — RF4 aplicada correctament a articles amb dim_esp=True.
+- **`sac_25_especial`**: sempre False actualment (QryGroup3 buit). Es reactivarà automàticament tan bon punt el consultor SAP migri les 13 files.
+
+### Query SQL per migració de RF6 (per al consultor SAP)
+
+Llista d'articles a marcar amb `OITM.QryGroup3='Y'` a SAP (font: Kais):
+
+```sql
+-- Executar contra la BD Kais (vkais\kais / GWSV_AGRI):
+SELECT ia.art_codi
+FROM INF_ARTICULO ia WITH (NOLOCK)
+WHERE ia.INF_TITULO = 'SAC__ESPEC_7FJ0L0CG3'
+  AND RTRIM(ISNULL(ia.INF_VALOR,'')) = 'SI'
+ORDER BY ia.art_codi
+-- (13 files esperades)
+```
+
+Els codis d'article a Kais coincideixen amb `OITM.ItemCode` a SAP (mateix codi numèric, sense prefix). Actualitzar `UPDATE OITM SET QryGroup3='Y' WHERE ItemCode IN (...)` a la BD SAP (o millor: adaptar el VBA `Módulo1.bas` que ja té la lògica).
+
+### Observació sobre el bug de Kais
+
+El bug latent a la variant Kais (`consultes.py:200-202`) es **coneix però NO es corregeix** des d'aquest projecte per la restricció explícita de no tocar `P:\preparacioComandesVenda`. Convindria comunicar-lo a l'equip que manté Kais per si volen corregir-lo (canviar `'ARTICE_ESPECIAL'` → `'DIMENSIO_ESPECIAL'` i `'ARTICLE_ESPECIFIC'` → `'COMANDA MÍNIMA PRODUCCIÓ'`).
