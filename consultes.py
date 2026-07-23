@@ -599,10 +599,14 @@ def obtenir_direccio(conn, cli_codi: str, adr_codi: str) -> Direccio:
 # ============================================================
 # obtenir_palet_client(): @SEITARIFACAB + @SEITARIFADET
 # ============================================================
-def obtenir_palet_client(cli_codi: str, adr_codi: str | None = None) -> dict | None:
+def obtenir_palet_client(cli_codi: str, adr_codi: str | None = None, conn=None) -> dict | None:
     """Cerca el tipus de palet negociat pel client a `@SEITARIFACAB/DET`.
 
     Substitueix el lookup del `PREUSCLIENTS.xlsx` de Kais.
+
+    Si `conn` es passa, es reutilitza (evita deadlock quan el motor ja té una
+    connexió oberta i el semàfor només permet 1 connexió simultània). Si no,
+    n'obre i tanca una de nova.
 
     Estrategia:
     - Filtra tarifes actives (U_SEIActivo='Y') del CardCode.
@@ -617,7 +621,9 @@ def obtenir_palet_client(cli_codi: str, adr_codi: str | None = None) -> dict | N
             _palet_client_cache.move_to_end(cache_key)
             return cached
 
-    conn = connectar()
+    _own_conn = conn is None
+    if _own_conn:
+        conn = connectar()
     try:
         sql = """
             SELECT TOP 1
@@ -637,7 +643,8 @@ def obtenir_palet_client(cli_codi: str, adr_codi: str | None = None) -> dict | N
         adr_pattern = f"{adr_codi}-%" if adr_codi else None
         r = conn.execute(sql, cli_codi, adr_codi, adr_pattern).fetchone()
     finally:
-        conn.close()
+        if _own_conn:
+            conn.close()
 
     result = None
     if r and r.art_codi:

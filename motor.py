@@ -256,8 +256,9 @@ def _resolver_tipus_palet(conn, sal_codigo, cpa_albara, resultat, direccio, eje=
     Per tant, la prioritat és: condicions client > palet a la comanda > fallback.
     """
 
-    # 1. Palet del client via PREUSCLIENTS.xlsx (condicions de venda)
-    palet_client = obtenir_palet_client(direccio.cli_codi, direccio.adr_codi)
+    # 1. Palet del client via @SEITARIFACAB/DET (condicions de venda).
+    # Cal passar `conn` per evitar deadlock del semàfor pyodbc (el motor ja té una conn oberta).
+    palet_client = obtenir_palet_client(direccio.cli_codi, direccio.adr_codi, conn=conn)
     if palet_client:
         return palet_client, "condicions direcció", True
 

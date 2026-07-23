@@ -38,3 +38,27 @@ def ensure_kais_path() -> None:
 
 
 ensure_kais_path()
+
+
+def _apply_sap_overrides() -> None:
+    """Afegeix a `regles.OVERRIDES_PALET_CLIENT` els equivalents en format SAP.
+
+    Els codis client a SAP són el codi Kais sense els zeros inicials i amb prefix 'C'
+    (ex: Kais `00301614` = SAP `C301614`). Per no duplicar la lista a `regles.py`
+    (compartit amb Kais canònic — intocable des d'aquesta variant), aquí traduïm
+    dinàmicament cada entrada Kais al seu equivalent SAP i les injectem al set.
+    """
+    import regles  # noqa: E402
+    kais_to_sap: dict[str, str] = {
+        "00301614": "C301614",  # ACID CAFE BERLIN GMBH
+    }
+    sap_extras = set()
+    for cli_kais, art in regles.OVERRIDES_PALET_CLIENT:
+        cli_sap = kais_to_sap.get(cli_kais)
+        if cli_sap:
+            sap_extras.add((cli_sap, art))
+    if sap_extras:
+        regles.OVERRIDES_PALET_CLIENT = regles.OVERRIDES_PALET_CLIENT | sap_extras
+
+
+_apply_sap_overrides()
