@@ -383,10 +383,16 @@ A Kais aquest bug **mai s'havia manifestat** perquè RF4 tampoc s'aplica allà (
 - `_row_to_linia`: `dimensio_especial=False` (amb comentari explicant el motiu).
 - La lectura de `QryGroup2` al `_LINIES_SELECT` es manté — mantenim la infraestructura llesta per si algun dia es corregeix el bug del motor.
 
-**VBA** `P:\VBA\OITM\Módulo1.bas` (línia 150):
-- Abans: `If Trim(CStr(wsInfoAnex.Cells(n, "D").Value)) <> "" Then`
-- Ara: `If UCase(Trim(CStr(wsInfoAnex.Cells(n, "D").Value))) = "SI" Then`
-- Comentari actualitzat per explicar que el camp té valors `'SI'` i `'NO'`.
+**VBA** `P:\VBA\OITM\Módulo1.bas` — fix ampliat als 3 diccionaris que llegeixen d'InfoAnex:
+- `dictArticeEsp` (~línia 120): abans `<> ""`, ara `= "SI"`. Afecta QG2 (21 → 4 articles marcats).
+- `dictSacEspec` (~línia 137): abans `<> ""`, ara `= "SI"`. QG3 no canvia (tots són `'SI'` a Kais), però ho apliquem per prevenció.
+- `dictProducteE` (~línia 150): abans `<> ""`, ara `= "SI"`. Afecta QG4 (41 → 11 articles marcats).
+
+### Descoberta col·lateral: QG2 també tenia dades incorrectes
+
+Mateix bug: dels 21 articles amb `QryGroup2='Y'` a SAP, **només 4 tenen `ARTICE_ESP='SI'` a Kais** (30360, 31020, 31080, 50530). Els 17 restants tenen `'NO'` i estaven marcats per error.
+
+Efecte pràctic mentre RF4 està desactivada a SAP: cap. El motor no llegeix `dimensio_especial` real. Però la neteja de QG2 deixa les dades preparades per si un dia es reactiva RF4 (un cop corregit el bug del motor).
 
 ### Verificació
 
