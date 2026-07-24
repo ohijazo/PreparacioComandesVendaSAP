@@ -459,16 +459,15 @@ def _row_to_linia(r) -> Linia:
         uxc=float(r.uxc) if r.uxc is not None else None,
         pes=float(r.pes) if r.pes is not None else None,
         cantidadapilable=int(r.cantidadapilable) if r.cantidadapilable is not None else None,
-        # RF3 (comanda_minima_produccio) desactivada a SAP: Kais mateix té un bug
-        # de mapatge INF_CONCEPTO que impedeix que s'apliqui allà — replica'm el
-        # comportament (decisió Oscar 2026-07-23). Vegi tasks/validacio_sap.md §1.5.
+        # RF3 (comanda_minima_produccio): DESACTIVADA a SAP fins que es creï un UDF
+        # nou per aquest valor numèric (kg). A Kais els 32 articles amb mínim
+        # comencen a aplicar RF3 des del fix de 2026-07-24 (§1.12); a SAP mantenim
+        # None fins que hi hagi un camp equivalent a OITM.
         comanda_minima_produccio=None,
-        # RF4 (dimensio_especial) DESACTIVADA (decisió Oscar 2026-07-23, §1.11).
-        # Motiu: RF4 té un bug latent al motor `regles.py` (apilament perd sacs);
-        # a Kais mai s'ha manifestat perquè allà RF4 tampoc s'aplica (bug al mapatge
-        # INF_CONCEPTO). Mantenim el flag del SELECT llegit per poder-lo reactivar
-        # trivialment un cop es corregeixi el bug del motor.
-        dimensio_especial=False,  # abans: (r.dimensio_especial_flag == 'Y')
+        # RF4 (dimensio_especial): REACTIVADA 2026-07-24 (§1.12). Els bugs INF_CONCEPTO
+        # i apilament de RF4 s'han corregit a la variant Kais i el motor compartit
+        # `regles.py` — reactivem la lectura de QryGroup2 aquí.
+        dimensio_especial=(r.dimensio_especial_flag == 'Y'),
         # RF6 sac_25_especial: OITM.QryGroup3 (13 articles migrats des de Kais).
         sac_25_especial=(r.sac_25_especial_flag == 'Y'),
         # `sac_colagne_normal` derivat de la família comercial fins que hi hagi UDF explícit.

@@ -420,6 +420,71 @@ L'usuari ha re-executat la macro corregida i ha pujat els 6 QryGroups a SAP via 
 
 **Preparat per Fase 2**: integració dins SAP (worker sync + Service Layer + panel User-Defined Query al formulari Comanda).
 
+---
+
+## §1.12 Fase 1.8 — Reactivació de RF4 (post-fix Kais 2026-07-24)
+
+### Context
+
+Auditoria detallada va confirmar que Kais tenia dos bugs històrics:
+- **BUG #1**: `consultes.py:200-202` cercava conceptes inexistents al `WHERE INF_CONCEPTO IN (...)`. RF3 i RF4 mai s'activaven.
+- **BUG #2**: RF4 apilament perdia sacs (`regles.py`, funció d'apilament).
+
+Oscar va autoritzar la reparació dels 2 bugs a la variant Kais (que és una app nostra, no d'un equip extern). Els fixes es van aplicar en una sessió Claude separada dins `P:\preparacioComandesVenda`.
+
+### Verificació post-fix Kais
+
+1. **`obtenir_titols_infoanex()` a Kais** ara retorna les 5 claus esperades:
+```
+APROVISIONAMENT     → APROVISION_5NZ0KGRFP
+ARTICLE_ESPECIFIC   → ARTICLE_ES_7FJ0L1ULT  ← NOU (abans faltava)
+DIMENSIO_ESPECIAL   → ARTICE_ESP_7FJ0KZTDV  ← NOU (abans faltava)
+SAC_25_ESPECIAL     → SAC__ESPEC_7FJ0L0CG3
+SAC_COLAGNE_NORMAL  → PRODUCTE_E_7G6115Z5T
+```
+
+2. **Tests unitaris SAP**: 71/71 OK amb els canvis a `regles.py` (fitxer compartit via `_bootstrap.py`).
+
+### Canvi a la variant SAP
+
+`P:\preparacioComandesVendaSAP\consultes.py` — reactivar la lectura de `dimensio_especial`:
+
+```python
+# Abans (Fase 1.7):
+dimensio_especial=False,  # abans: (r.dimensio_especial_flag == 'Y')
+
+# Ara (Fase 1.8):
+dimensio_especial=(r.dimensio_especial_flag == 'Y'),
+```
+
+`comanda_minima_produccio` es queda `None` a SAP — perquè aquest camp necessita un UDF a OITM que no existeix (només hi ha `QryGroup2/QG3/QG4` binaris). Es podria crear en un futur si es vol activar RF3 a SAP.
+
+### Verificació batch (post-reactivació RF4)
+
+| Comanda | Estat | Palets | Sacs col·locats | Sacs demanats | Diff | dim_esp | sac25 |
+|---|---|---|---|---|---|---|---|
+| 268/26600093 | CALCULAT | 100 | 2400 | 2400 | **0** ✅ | 0 | 1 |
+| 268/26600078 | CALCULAT | 47 | 1935 | 1935 | **0** ✅ | 1 | 1 |
+| 268/26600071 | CALCULAT | 79 | 3035 | 3035 | **0** ✅ | 1 | 2 |
+| 268/26600090 | CALCULAT | 2 | 65 | 65 | **0** ✅ | 0 | 1 |
+| 268/26600092 | CALCULAT | 189 | 7075 | 7075 | **0** ✅ | 0 | 1 |
+| 268/26600028 | CALCULAT | 2 | 60 | 60 | **0** ✅ | 0 | 0 |
+| 268/26600094 | CALCULAT | 134 | 6000 | 6000 | **0** ✅ | 0 | 0 |
+
+**Zero sacs perduts** en cap comanda. RF4 s'activa correctament per articles amb dimensió especial reals (30360, 31020, 31080, 50530) i el motor col·loca tots els sacs demanats. Confirmació que el BUG #2 (apilament) està arreglat al motor compartit.
+
+### Estat final RF3/RF4/RF6 a SAP
+
+| Regla | Estat SAP | Font dades |
+|---|---|---|
+| RF3 (comanda_minima_produccio) | ⏸️ Desactivada | Falta UDF a OITM (no és bloquejant) |
+| RF4 (dimensio_especial) | ✅ **Activa** | `QryGroup2` (4 articles reals) |
+| RF6 (sac_25_especial) | ✅ **Activa** | `QryGroup3` (13 articles) |
+
+**Sincronització Kais ↔ SAP**: ambdós entorns ara apliquen RF4 sobre els mateixos 4 articles (30360, 31020, 31080, 50530) i RF6 sobre els mateixos 13. Motor consistent entre les dues variants.
+
+**Fase 1 completament tancada 2026-07-24**. Zero regressions detectades. Preparat per Fase 2.
+
 ### Verificació
 
 - **Tests unitaris**: 71/71 OK.
