@@ -394,6 +394,32 @@ Mateix bug: dels 21 articles amb `QryGroup2='Y'` a SAP, **només 4 tenen `ARTICE
 
 Efecte pràctic mentre RF4 està desactivada a SAP: cap. El motor no llegeix `dimensio_especial` real. Però la neteja de QG2 deixa les dades preparades per si un dia es reactiva RF4 (un cop corregit el bug del motor).
 
+### Verificació final post-import (2026-07-24)
+
+L'usuari ha re-executat la macro corregida i ha pujat els 6 QryGroups a SAP via DT. Verificació creuada Kais ↔ SAP:
+
+| QG | Concepte | Kais | SAP | Estat |
+|---|---|---|---|---|
+| QG1 | ES_PALET | 7 | 7 | ✅ 100% |
+| QG2 | Dimensió Especial (`ARTICE_ESP=SI`) | 4 | 4 | ✅ 100% |
+| QG3 | Sac 25 Especial (`SAC__ESPEC=SI`) | 13 | 13 | ✅ 100% |
+| QG4 | Sac Colagne (`PRODUCTE_E=SI`) | 11 | 11 | ✅ 100% |
+| QG5 | Es Granel (`art_descunit='GRA'`) | 110 | 110 | ✅ 100% |
+| QG6 | Contra Stock (`art_filtro2='00000'`) | 81 | 81 | ✅ 100% |
+
+**Zero divergències.** Els 6 QryGroups estan totalment sincronitzats amb la font Kais.
+
+## Estat final Fase 1 (tancada 2026-07-24)
+
+- ✅ Motor SAP funciona equivalentment a Kais per a totes les regles actives (RF1, RF2, RF5-RF14).
+- ✅ RF4 desactivada intencionadament (idèntic a Kais actual; evita el bug del motor).
+- ✅ RF6 activa amb els 13 articles correctes migrats.
+- ✅ RF13 amb mapatge Kais→SAP als overrides (`00301614`→`C301614`).
+- ✅ Deadlock del semàfor pyodbc arreglat.
+- ✅ QryGroups SAP totalment nets i sincronitzats amb Kais.
+
+**Preparat per Fase 2**: integració dins SAP (worker sync + Service Layer + panel User-Defined Query al formulari Comanda).
+
 ### Verificació
 
 - **Tests unitaris**: 71/71 OK.
