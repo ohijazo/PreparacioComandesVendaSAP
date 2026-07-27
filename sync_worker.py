@@ -14,13 +14,20 @@ Sense estat local (SQLite, etc.): el "estat" viu al mateix ORDR.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 logger = logging.getLogger("sync_worker")
+
+# Nombre de passades recents a conservar per monitoratge
+_HISTORIC_MAX = 20
 
 
 @dataclass
@@ -70,6 +77,7 @@ class SyncWorker:
         interval_sec: float = 10.0,
         max_per_pass: int = 50,
         dry_run: bool = False,
+        status_file: str | None = None,
     ):
         self.sl_client = sl_client
         self.connectar_fn = connectar_fn
@@ -79,12 +87,25 @@ class SyncWorker:
         self.interval_sec = interval_sec
         self.max_per_pass = max_per_pass
         self.dry_run = dry_run
+        self.status_file = status_file
+
+        # Estat en memòria per monitoratge (llegit per l'endpoint via status_file):
+        # deque de les últimes N passades (per veure tendències).
+        self._historic: deque[dict[str, Any]] = deque(maxlen=_HISTORIC_MAX)
+        # Comptadors acumulats des de l'inici del worker.
+        self._totals = {"trobades": 0, "ok": 0, "error_motor": 0,
+                        "error_patch": 0, "error_altres": 0}
+        self._started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     # ------------------------------------------------------------------
     # Passada única
     # ------------------------------------------------------------------
     def run_one_pass(self) -> PassStats:
-        """Executa una passada. Retorna estadístiques."""
+        """Executa una passada. Retorna estadístiques.
+
+        Al final actualitza el buffer intern d'estadístiques i, si `status_file`
+        està configurat, escriu un snapshot JSON per monitoratge extern.
+        """
         stats = PassStats(dry_run=self.dry_run)
         t0 = time.monotonic()
 
@@ -96,16 +117,53 @@ class SyncWorker:
             self._safe_close(conn)
 
         stats.trobades = len(comandes)
-        if not comandes:
-            stats.elapsed_sec = time.monotonic() - t0
-            return stats
-
-        # 2) Processar cada comanda
-        for c in comandes[: self.max_per_pass]:
-            self._process_one(c, stats)
+        if comandes:
+            # 2) Processar cada comanda
+            for c in comandes[: self.max_per_pass]:
+                self._process_one(c, stats)
 
         stats.elapsed_sec = time.monotonic() - t0
+
+        # 3) Actualitzar estat + escriure a disc
+        self._register_pass(stats)
         return stats
+
+    def _register_pass(self, stats: PassStats) -> None:
+        """Enregistra la passada al buffer intern i escriu status_file si cal."""
+        pass_record = {
+            "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            **stats.to_dict(),
+        }
+        self._historic.append(pass_record)
+        for k in ("trobades", "ok", "error_motor", "error_patch", "error_altres"):
+            self._totals[k] += getattr(stats, k)
+        if self.status_file:
+            self._write_status_file()
+
+    def _write_status_file(self) -> None:
+        """Escriu snapshot JSON amb tot l'estat monitorable.
+
+        Escriptura atòmica (temp file + rename) per evitar reads parcials.
+        """
+        assert self.status_file is not None
+        snapshot = {
+            "started_at": self._started_at,
+            "last_pass_at": self._historic[-1]["ts"] if self._historic else None,
+            "totals": dict(self._totals),
+            "recent_passes": list(self._historic),
+            "config": {
+                "interval_sec": self.interval_sec,
+                "max_per_pass": self.max_per_pass,
+                "dry_run": self.dry_run,
+            },
+        }
+        tmp = self.status_file + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(snapshot, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, self.status_file)
+        except OSError as e:
+            logger.warning("No s'ha pogut escriure status_file %s: %s", self.status_file, e)
 
     def _process_one(self, c: dict[str, Any], stats: PassStats) -> None:
         doc_entry = c["doc_entry"]

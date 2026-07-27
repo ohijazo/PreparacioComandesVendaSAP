@@ -269,3 +269,107 @@ def test_run_forever_continua_despres_de_petada_no_capturada():
     th.join(timeout=2.0)
     assert not th.is_alive()
     assert calls["n"] >= 2  # el loop va continuar després de la petada
+
+
+# ============================================================
+# status_file: escriptura JSON per l'endpoint /api/admin/sync-status
+# ============================================================
+import json
+import os
+
+
+def test_status_file_no_s_escriu_si_no_configurat(tmp_path):
+    """Si status_file=None, no s'escriu res enlloc."""
+    w = _mk_worker(status_file=None, obtenir_comandes_fn=lambda c: [])
+    w.run_one_pass()
+    # cap fitxer creat a tmp_path (no s'ha configurat)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_status_file_es_crea_i_conte_estat(tmp_path):
+    status_file = str(tmp_path / "sync_status.json")
+    comandes = [{"doc_entry": 1, "series": 268, "docnum": 1000, "card_code": "C1"}]
+    w = _mk_worker(
+        status_file=status_file,
+        obtenir_comandes_fn=lambda c: comandes,
+    )
+    w.run_one_pass()
+
+    assert os.path.exists(status_file)
+    with open(status_file, encoding="utf-8") as f:
+        data = json.load(f)
+
+    assert "started_at" in data
+    assert "last_pass_at" in data
+    assert data["totals"] == {
+        "trobades": 1, "ok": 1,
+        "error_motor": 0, "error_patch": 0, "error_altres": 0,
+    }
+    assert len(data["recent_passes"]) == 1
+    assert data["recent_passes"][0]["trobades"] == 1
+    assert data["recent_passes"][0]["ok"] == 1
+    assert "ts" in data["recent_passes"][0]
+    assert data["config"] == {"interval_sec": 0.05, "max_per_pass": 50, "dry_run": False}
+
+
+def test_status_file_totals_s_acumulen_entre_passades(tmp_path):
+    status_file = str(tmp_path / "sync_status.json")
+    calls = {"n": 0}
+
+    def obtenir(conn):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return [{"doc_entry": 1, "series": 268, "docnum": 1, "card_code": "C1"}]
+        if calls["n"] == 2:
+            return [{"doc_entry": 2, "series": 268, "docnum": 2, "card_code": "C2"},
+                    {"doc_entry": 3, "series": 268, "docnum": 3, "card_code": "C3"}]
+        return []
+
+    w = _mk_worker(status_file=status_file, obtenir_comandes_fn=obtenir)
+    w.run_one_pass()  # 1 trobada, 1 OK
+    w.run_one_pass()  # 2 trobades, 2 OK
+    w.run_one_pass()  # 0
+
+    with open(status_file, encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["totals"]["trobades"] == 3
+    assert data["totals"]["ok"] == 3
+    assert len(data["recent_passes"]) == 3
+
+
+def test_status_file_recent_passes_respect_max_historic(tmp_path):
+    """El buffer intern de recent_passes es capa a _HISTORIC_MAX (20)."""
+    from sync_worker import _HISTORIC_MAX
+    status_file = str(tmp_path / "sync_status.json")
+    w = _mk_worker(status_file=status_file, obtenir_comandes_fn=lambda c: [])
+
+    # Fem 25 passades — el buffer ha de contenir només les 20 últimes
+    for _ in range(_HISTORIC_MAX + 5):
+        w.run_one_pass()
+
+    with open(status_file, encoding="utf-8") as f:
+        data = json.load(f)
+    assert len(data["recent_passes"]) == _HISTORIC_MAX
+
+
+def test_status_file_escriptura_atomica(tmp_path):
+    """Escriptura via .tmp + rename per evitar reads parcials."""
+    status_file = str(tmp_path / "sync_status.json")
+    w = _mk_worker(status_file=status_file, obtenir_comandes_fn=lambda c: [])
+    w.run_one_pass()
+    # El fitxer final existeix
+    assert os.path.exists(status_file)
+    # El fitxer temporal ja no existeix (rename l'ha eliminat)
+    assert not os.path.exists(status_file + ".tmp")
+
+
+def test_status_file_error_ioerror_es_loggejat_no_atura(tmp_path, caplog):
+    """Si l'escriptura del fitxer peta, el worker continua funcionant."""
+    # Directori inexistent per forçar OSError
+    status_file = str(tmp_path / "no_existeix" / "sync_status.json")
+    w = _mk_worker(status_file=status_file, obtenir_comandes_fn=lambda c: [])
+    with caplog.at_level("WARNING"):
+        stats = w.run_one_pass()
+    # La passada retorna estats vàlids (el worker no ha petat)
+    assert stats.trobades == 0
+    assert "No s'ha pogut escriure status_file" in caplog.text

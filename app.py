@@ -717,6 +717,44 @@ def api_admin_sql_stats_reset():
     return jsonify({"ok": True, "message": "Estadístiques reiniciades"})
 
 
+@app.route("/api/admin/sync-status")
+def api_admin_sync_status():
+    """Estat del worker de sync SAP.
+
+    Llegeix `logs/sync_status.json` que el worker actualitza a cada passada.
+    Retorna informació sobre l'inici del worker, comptadors acumulats,
+    últimes 20 passades i configuració.
+
+    Si el fitxer no existeix, retorna estat 'not_running' (el worker no ha
+    fet cap passada encara, o no està engegat).
+    """
+    import json as _json
+    status_path = os.environ.get(
+        "SYNC_STATUS_FILE",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "sync_status.json"),
+    )
+    if not os.path.exists(status_path):
+        return jsonify({
+            "ok": True,
+            "state": "not_running",
+            "message": "El worker de sync no ha executat cap passada encara "
+                       "(fitxer sync_status.json no existeix).",
+            "status_file": status_path,
+        })
+    try:
+        with open(status_path, "r", encoding="utf-8") as f:
+            snapshot = _json.load(f)
+    except (OSError, ValueError) as e:
+        return jsonify({
+            "ok": False,
+            "state": "error_reading_status",
+            "error": str(e),
+            "status_file": status_path,
+        }), 500
+
+    return jsonify({"ok": True, "state": "running", **snapshot})
+
+
 @app.route("/api/admin/clients")
 def api_admin_clients():
     """Mostra els clients actius (IP, últim request, fa quant)."""

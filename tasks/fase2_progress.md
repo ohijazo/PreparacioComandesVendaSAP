@@ -34,7 +34,7 @@ S'actualitza a cada commit rellevant. Complement a:
 | 2.2 | Detecció comandes amb `U_FCCalcular='S'` | ✅ Fet (commit `d1916da`) |
 | 2.3 | Format del resum textual (`sap_formatter.py`) | ✅ Fet (commit `f7aedb6`) |
 | 2.4 | Worker sync (`sync_worker.py`) + entry point | ✅ Fet (commit `c328d3c`) |
-| 2.5 | Endpoint admin monitoratge | ⏳ Pendent (opcional) |
+| 2.5 | Endpoint admin monitoratge | ✅ Fet |
 | 2.6 | Deployment amb NSSM + validació end-to-end | ✅ Fet (script + docs; validació esperant consultor) |
 
 ---
@@ -237,9 +237,78 @@ Fins llavors, el deployment queda "code-ready + docs-ready" — s'executarà qua
 
 ---
 
-## Propers passos
+## §2.5 Endpoint admin monitoratge (2026-07-27)
 
-**§2.5 — Endpoint admin monitoratge** (opcional):
+### Objectiu
+Permetre veure l'estat del worker de sync des de la web Flask sense obrir logs. Útil per debug, monitoratge i per verificar que el worker està sa.
+
+### Arquitectura
+El worker (`run_sync.py`) i Flask (`app.py`) són processos separats (NSSM service vs. Flask server). Comuniquen via **fitxer JSON** compartit a `logs/sync_status.json`:
+- **Worker**: després de cada passada escriu snapshot amb totals acumulats + últimes 20 passades + config. Escriptura atòmica (temp + rename) per evitar reads parcials.
+- **Flask**: endpoint `/api/admin/sync-status` llegeix el JSON i el retorna.
+
+### Canvis
+- **`sync_worker.py`**:
+  - Nou paràmetre `status_file` al `SyncWorker.__init__` (default `None`).
+  - Nova constant `_HISTORIC_MAX = 20` — buffer intern de les últimes N passades.
+  - `_register_pass(stats)` — actualitza buffer intern + totals + escriu fitxer.
+  - `_write_status_file()` — escriptura JSON atòmica amb `os.replace`.
+  - Snapshot inclou: `started_at`, `last_pass_at`, `totals`, `recent_passes`, `config`.
+  - Errors d'escriptura (OSError) es loggen com WARNING i no aturen el worker.
+  - Aprofitat per corregir warning de `datetime.utcnow()` deprecat.
+
+- **`run_sync.py`**:
+  - Nova env var `SYNC_STATUS_FILE` (default `logs/sync_status.json`).
+  - `_build_worker` accepta i passa `status_file`.
+  - Crea `logs/` si no existeix abans d'arrencar el worker.
+
+- **`app.py`**:
+  - Nou endpoint `GET /api/admin/sync-status`.
+  - Llegeix `SYNC_STATUS_FILE` (mateix default que `run_sync.py`).
+  - Retorna 3 estats possibles:
+    - `not_running` (200): fitxer no existeix — worker aturat o mai executat.
+    - `running` (200): snapshot llegit OK, retorna totes les dades.
+    - `error_reading_status` (500): fitxer corrupte (JSON malformat).
+
+### Tests nous
+- **`tests/test_sync_worker.py`** (+6 tests): status_file no configurat / creat amb dades / totals acumulats / respect max histori / escriptura atòmica / error OSError loggejat i no atura.
+- **`tests/test_endpoint_sync_status.py`** (3 tests amb Flask test client): not_running / running amb snapshot / error JSON malformat.
+
+### Verificació
+- `pytest tests/` → **125/125 OK** (116 previs + 6 worker + 3 endpoint). Cap regressió.
+
+### Ús
+```bash
+# Consulta a l'endpoint (browser o curl):
+curl http://comandes.agrienergia.local/api/admin/sync-status
+
+# Exemple resposta (worker sa):
+{
+  "ok": true, "state": "running",
+  "started_at": "2026-07-27T09:00:00Z",
+  "last_pass_at": "2026-07-27T15:34:12Z",
+  "totals": {"trobades": 128, "ok": 125, "error_motor": 2, "error_patch": 1, "error_altres": 0},
+  "recent_passes": [...últimes 20 passades...],
+  "config": {"interval_sec": 10.0, "max_per_pass": 50, "dry_run": false}
+}
+```
+
+### Commit
+Pendent commit + push.
+
+---
+
+## Estat final Fase 2 tècnica
+
+Amb aquest commit **totes les subfases estan tancades**. Falta només:
+1. **Consultor SAP** — crear els 3 UDFs a ORDR + usuari Service Layer.
+2. **Instal·lació física** — executar `install_sync_service.ps1` al servidor.
+
+Un cop fets aquests 2 passos externs, l'integració estarà operativa.
+
+---
+
+## Propers passos (post-consultor)
 - `GET /api/admin/sync-status` a `app.py`.
 - Retorna estadístiques del worker (últimes execucions, últimes errors).
 - Reutilitza rate limiting existent.

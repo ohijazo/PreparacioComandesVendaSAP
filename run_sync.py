@@ -82,7 +82,7 @@ def _build_sl_client() -> SLClient:
 
 
 def _build_worker(sl_client: SLClient, interval: float, max_per_pass: int,
-                  dry_run: bool) -> SyncWorker:
+                  dry_run: bool, status_file: str | None) -> SyncWorker:
     return SyncWorker(
         sl_client=sl_client,
         connectar_fn=connectar,
@@ -92,6 +92,7 @@ def _build_worker(sl_client: SLClient, interval: float, max_per_pass: int,
         interval_sec=interval,
         max_per_pass=max_per_pass,
         dry_run=dry_run,
+        status_file=status_file,
     )
 
 
@@ -113,6 +114,14 @@ def main():
     interval = args.interval or float(os.environ.get("SYNC_INTERVAL_SEC", "10"))
     max_per_pass = args.max_per_pass or int(os.environ.get("SYNC_MAX_PER_PASS", "50"))
 
+    # Fitxer JSON amb l'estat del worker per l'endpoint /api/admin/sync-status.
+    # Per defecte a logs/sync_status.json (mateix directori que els logs NSSM).
+    status_file = os.environ.get("SYNC_STATUS_FILE")
+    if not status_file:
+        logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+        status_file = os.path.join(logs_dir, "sync_status.json")
+
     sl = _build_sl_client()
 
     # Login explícit — així fallem aviat si les credencials són incorrectes.
@@ -123,7 +132,7 @@ def main():
         return 2
 
     try:
-        worker = _build_worker(sl, interval, max_per_pass, args.dry_run)
+        worker = _build_worker(sl, interval, max_per_pass, args.dry_run, status_file)
 
         if args.once:
             stats = worker.run_one_pass()
