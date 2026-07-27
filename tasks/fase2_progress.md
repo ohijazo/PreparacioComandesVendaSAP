@@ -33,9 +33,9 @@ S'actualitza a cada commit rellevant. Complement a:
 | 2.1 | Client Service Layer aïllat + tests | ✅ Fet (commit `df1a1b9`) |
 | 2.2 | Detecció comandes amb `U_FCCalcular='S'` | ✅ Fet (commit `d1916da`) |
 | 2.3 | Format del resum textual (`sap_formatter.py`) | ✅ Fet (commit `f7aedb6`) |
-| 2.4 | Worker sync (`sync_worker.py`) + entry point | ✅ Fet |
-| 2.5 | Endpoint admin monitoratge | ⏳ Pendent |
-| 2.6 | Deployment amb NSSM + validació end-to-end | ⏳ Pendent |
+| 2.4 | Worker sync (`sync_worker.py`) + entry point | ✅ Fet (commit `c328d3c`) |
+| 2.5 | Endpoint admin monitoratge | ⏳ Pendent (opcional) |
+| 2.6 | Deployment amb NSSM + validació end-to-end | ✅ Fet (script + docs; validació esperant consultor) |
 
 ---
 
@@ -195,9 +195,51 @@ Pendent commit + push.
 
 ---
 
+---
+
+## §2.6 Deployment amb NSSM (2026-07-27)
+
+### Objectiu
+Registrar `run_sync.py` com a servei Windows perquè arrenqui automàticament, es reinicii en cas d'error, i tingui rotació de logs.
+
+### Canvis
+- **Nou fitxer** `scripts/install_sync_service.ps1` — script PowerShell per instal·lar/desinstal·lar el servei NSSM.
+  - Paràmetres: `-Install` (default), `-Uninstall`, `-ServiceName`, `-ProjectPath`, `-PythonExe`, `-NssmPath`.
+  - Verificacions: administrador, NSSM accessible, python executable, `run_sync.py` present.
+  - Configuració NSSM: AppDirectory, DisplayName, Description, StartType=Auto, logs a `logs/sync_worker.log` amb rotació (5 MB × 5 fitxers ≈ 25 MB màx), restart on failure amb throttle 10s.
+  - Codificació **UTF-8 amb BOM** (requerit per Windows PowerShell 5.1 amb caràcters accentuats).
+- **Nou fitxer** `docs/deployment_worker.md` — guia completa:
+  - Prerequisits (NSSM, venv, UDFs SAP creats, credencials Service Layer).
+  - Prova prèvia amb `--once --dry-run`.
+  - Instal·lació step-by-step.
+  - Operativa diària (veure logs, reiniciar, aturar).
+  - Actualització de codi.
+  - Desinstal·lació.
+  - Troubleshooting.
+  - Paràmetres avançats (interval, max_per_pass, log-level).
+  - Alternativa systemd (Linux) documentada.
+
+### Verificació
+- **Parser PS1**: `[System.Management.Automation.Language.Parser]::ParseFile` retorna 648 tokens, 0 errors.
+- **Instal·lació real**: no provada aquí (requereix privilegis d'administrador + NSSM + servidor SAP amb UDFs creats). El script farà `nssm install/set/start` amb els paràmetres correctes; el troubleshooting està documentat.
+- Documentació coherent amb els noms de mòduls i fitxers actuals.
+
+### Commit
+Pendent commit + push.
+
+### Bloquejant
+La validació end-to-end del servei requereix:
+1. UDFs `U_FCCalcular`, `U_FCEmbalatgeResum`, `U_FCEmbalatgeEstat` creats a SAP (pendent consultor).
+2. Credencials Service Layer amb usuari dedicat (pendent consultor).
+3. NSSM instal·lat al host de producció.
+
+Fins llavors, el deployment queda "code-ready + docs-ready" — s'executarà quan el consultor doni el vistiplau i creï els requisits.
+
+---
+
 ## Propers passos
 
-**§2.5 — Endpoint admin monitoratge**:
+**§2.5 — Endpoint admin monitoratge** (opcional):
 - `GET /api/admin/sync-status` a `app.py`.
 - Retorna estadístiques del worker (últimes execucions, últimes errors).
 - Reutilitza rate limiting existent.
