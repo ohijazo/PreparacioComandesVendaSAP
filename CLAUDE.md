@@ -29,9 +29,12 @@ la capa de dades (`consultes.py`).
 
 ## 2. Entorno técnico
 
-- Servidor SQL SAP: `<pendent>` (SAP B1 sobre SQL Server)
-- Base de dades: `DB_FARINERA_TEST`
-- Usuari: `sa`
+- Servidor SQL SAP: `AE01SAPSQL.Agrienergia.local` (SAP B1 sobre SQL Server)
+- Base de dades: `DB_FARINERA_TEST` (entorn test; canviar a producció al `.env` real)
+- Usuari lectura: `sa` (connexió pyodbc amb `ApplicationIntent=ReadOnly`)
+- Usuari escriptura: pendent — el crearà el consultor SAP per la Fase 2 (usuari
+  Service Layer amb permisos limitats sobre els UDFs `U_FCEmbalatge*` a ORDR)
+- Driver: ODBC Driver 18 for SQL Server
 - Aplicació canònica Kais: `P:\preparacioComandesVenda`
 
 ---
@@ -202,27 +205,43 @@ Cas típic: residu de colagne (RF8 estricte, base=3, palet europeu) que cap dins
 
 ## 11. Estados
 
-| Estado | Significado |
+| Estat | Significat |
 |---|---|
-| `CALCULADO` | Cálculo completado sin incidencias |
-| `CALCULADO_CON_AVISOS` | Completado con advertencias |
-| `NO_CALCULABLE` | No se puede calcular |
+| `CALCULAT` | Càlcul completat sense incidències |
+| `CALCULAT_AMB_AVISOS` | Completat amb avisos (traçabilitat conté línies AVÍS) |
+| `SOTA_MINIM` | Comanda per sota del mínim (RF2) |
+| `NO_CALCULABLE` | No es pot calcular (ex: només articles GRA per RF1) |
+| `ERROR` | Excepció interna del pipeline (worker de Fase 2, veure `sync_worker.py`) |
 
 ---
 
-## 12. Pendiente (CRÍTICO)
+## 12. Estat actual dels UDFs a SAP (post-Fase 1, 2026-07-27)
 
-### Dirección
-- `tipus_descarrega`
-- `sacs_x_base`
-- `max_sacs_palet`
-- `preval_direccio`
+### Direcció (CRD1) — tots operatius
+- `tipus_descarrega` ← `U_SEITIPOD` ✅
+- `sacs_x_base` ← `U_SEISACOSB` ✅
+- `max_sacs_palet` ← `U_SEIMAXSP` ✅
+- `sacs_comanda_minima` ← `U_SEIPEDIDOM` ✅
+- `preval_direccio` ← `U_SEIPREVAL` ✅
 
-### Artículo
-- `dimensio_especial`
-- `aprovisionament_estoc`
-- `sac_25_especial`
-- `comanda_minima_produccio`
+### Article (OITM) — quasi tots operatius
+- `uxc` ← `U_SEIUnitatsPalet` ✅
+- `cantidadapilable` ← `U_SEIUnitatsApilables` ✅
+- `palet_producte_estoc` ← `U_SEIPaletProd` ✅
+- `aprovisionament_estoc` ← derivat de `U_SEIPaletProd` no NULL ✅
+- `dimensio_especial` ← `QryGroup2 = 'Y'` ✅ (4 articles migrats via VBA `Módulo1.bas`)
+- `sac_25_especial` ← `QryGroup3 = 'Y'` ✅ (13 articles migrats)
+- `sac_colagne_normal` ← proxy `U_SEIFamCialCat = 'MOULIN DE COLAGNE'` ✅
+- `comanda_minima_produccio` — ⏸️ desactivat a SAP (Kais tampoc l'aplica; no bloquejant).
+  Per activar: crear UDF nou (ex. `U_FCComandaMinKg`, int) + migrar 32 valors des de Kais.
+
+### Regles a SAP
+- ✅ RF1, RF2, RF5–RF14: totes actives amb dades reals.
+- ✅ RF4 (dimensio_especial): activa via QG2 (post-fix bug d'apilament a `regles.py`).
+- ✅ RF6 (sac_25_especial): activa via QG3.
+- ⏸️ RF3 (comanda_minima_produccio): desactivada (igual que a Kais).
+
+Detalls complets: `tasks/validacio_sap.md`.
 
 ---
 
@@ -314,3 +333,46 @@ Motor de decisión logística determinista basado en SQL.
 - **Simplicidad primero**: hacer cada cambio lo más sencillo posible. Impacto mínimo en el código.
 - **Sin pereza**: encontrar las causas raíz. Sin soluciones temporales. Estándares de desarrollador senior.
 - **Impacto mínimo**: los cambios solo deben afectar lo estrictamente necesario. Evitar introducir nuevos errores.
+
+---
+
+## 19. Fase 2 — Integració dins SAP (2026-07-27)
+
+**Objectiu**: eliminar la fricció d'obrir el navegador — l'operari veu el resum
+del càlcul directament al formulari Comanda de venda de SAP.
+
+### Disseny mínim (post-consulta al consultor)
+
+**3 UDFs a la taula ORDR** (prefix `U_FC` coherent amb els UDFs existents):
+
+| UDF | Tipus | Rol |
+|---|---|---|
+| `U_FCCalcular` | Alfa 1 (`S`/`N`) | Flag trigger — l'usuari el marca a `S` i desa |
+| `U_FCEmbalatgeResum` | Alfa 254 | Resum textual escrit pel worker |
+| `U_FCEmbalatgeEstat` | Alfa 30 | Estat (CALCULAT/ERROR/etc.) |
+
+**Trigger sota demanda** (no automàtic): l'operari edita comandes iterativament
+("sac a munt, sac a vall") sense pressió; quan és definitiva marca `U_FCCalcular=S`
+i desa. Un worker Python polleja cada ~10s **només** les comandes amb el flag actiu.
+
+**Sense**: UDTs personalitzades, User Query panel, add-ons SDK.
+
+### Mòduls Python (tots implementats i testats)
+
+- `sap_service_layer.py` (§2.1) — `SLClient` amb login/logout/`patch_order`, gestió sessió, retries.
+- `consultes.obtenir_comandes_a_calcular` (§2.2) — retorna comandes amb `U_FCCalcular='S'`.
+- `sap_formatter.py` (§2.3) — `formatar_resum(resultat) → (text, estat)`.
+- `sync_worker.py` (§2.4) — orquestrador amb `run_one_pass()` i `run_forever()`.
+- `run_sync.py` (§2.4) — entry point CLI amb `--once`, `--dry-run`, `--interval`.
+
+### Pendents Fase 2
+
+- **§2.5** — endpoint `/api/admin/sync-status` per monitoratge.
+- **§2.6** — deployment com a servei Windows amb NSSM.
+- **Bloquejant**: creació dels 3 UDFs a SAP pel consultor + usuari Service Layer dedicat.
+
+### Documentació
+
+- Estat detallat de cada subfase: `tasks/fase2_progress.md`.
+- Proposta enviada al consultor: `docs/proposta_integracio_sap.docx` (generada per `scripts/build_proposta_sap.py`).
+- Text del mail: `docs/proposta_integracio_sap_mail.md`.
