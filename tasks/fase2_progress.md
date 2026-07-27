@@ -32,8 +32,8 @@ S'actualitza a cada commit rellevant. Complement a:
 | 2.0 | Proposta consultiva al consultor SAP | ✅ Enviada (commit `b86fbc2`) |
 | 2.1 | Client Service Layer aïllat + tests | ✅ Fet (commit `df1a1b9`) |
 | 2.2 | Detecció comandes amb `U_FCCalcular='S'` | ✅ Fet (commit `d1916da`) |
-| 2.3 | Format del resum textual (`sap_formatter.py`) | ✅ Fet |
-| 2.4 | Worker sync (`sync_worker.py`) + entry point | ⏳ Pendent |
+| 2.3 | Format del resum textual (`sap_formatter.py`) | ✅ Fet (commit `f7aedb6`) |
+| 2.4 | Worker sync (`sync_worker.py`) + entry point | ✅ Fet |
 | 2.5 | Endpoint admin monitoratge | ⏳ Pendent |
 | 2.6 | Deployment amb NSSM + validació end-to-end | ⏳ Pendent |
 
@@ -139,15 +139,63 @@ En una prova (`268/26600092`) apareix `119×1030` (art_codi enlloc de descripci�
 
 ---
 
-## Propers passos
+---
 
-**§2.4 — Worker sync** (`sync_worker.py` + `run_sync.py`):
-- Uneix motor + formatter + SLClient.
-- Loop cada 5-10s: obtenir_comandes_a_calcular → per cada una: calcular_embalatges → formatar → sl.patch_order (amb `U_FCCalcular=N`).
-- Estat local SQLite per errors i logs?  Potser innecessari amb l'enfocament sota demanda (el "estat" viu al mateix ORDR).
-- Graceful shutdown (SIGINT/SIGTERM).
-- Entry point CLI: `python run_sync.py [--once|--dry-run]`.
-- Tests unitaris amb mocks del SL i BD.
+## §2.4 Worker sync + entry point (2026-07-27)
+
+### Objectiu
+Uneix els mòduls previs (`consultes`, `motor`, `sap_formatter`, `sap_service_layer`) en un worker que polleja les comandes marcades i les processa. Entry point CLI amb opcions.
+
+### Canvis
+- **Nou fitxer** `sync_worker.py`:
+  - Dataclass `PassStats` — estadístiques d'una passada (trobades, ok, error_motor/patch/altres, dry_run, errors, elapsed_sec).
+  - Classe `SyncWorker` amb injecció de dependències (facilita testejar sense mòduls globals):
+    - `run_one_pass()` — executa una passada, retorna `PassStats`.
+    - `run_forever(stop_event)` — loop indefinit amb graceful shutdown via `threading.Event`.
+    - `_process_one(c, stats)` — orquestra el pipeline per una comanda: calcular → formatar → patch.
+    - `_patch_error(doc_entry, msg, stats)` — escriu error a SAP i posa `U_FCCalcular='N'` perquè no es reprocessi (evita loops).
+  - Errors del motor / formatter → marca `U_FCEmbalatgeEstat='ERROR'` a SAP + continua amb la següent comanda.
+  - Errors del patch → registra, NO fa patch d'error recursiu, deixa el flag actiu perquè la propera passada reintenti.
+  - Sense estat local (SQLite, fitxers): el "estat" viu al mateix ORDR.
+  - `max(0.1, ...)` al wait del loop evita tight loop si passades peten ràpidament.
+
+- **Nou fitxer** `run_sync.py`:
+  - CLI amb `argparse`: `--once`, `--dry-run`, `--interval`, `--max-per-pass`, `--log-level`.
+  - Carrega config `.env` automàticament (via import de `consultes.py`).
+  - Login explícit al SLClient — falla aviat si credencials incorrectes.
+  - Signal handlers SIGINT/SIGTERM per graceful shutdown.
+  - `try/finally` per garantir `sl.logout()` sempre.
+
+- **Nou fitxer** `tests/test_sync_worker.py` — 13 tests amb mocks:
+  - 0 comandes → cap patch.
+  - 1 comanda OK → patch amb payload `{U_FCCalcular=N, Resum, Estat}` correcte.
+  - Múltiples comandes → un patch per cadascuna.
+  - Respect `max_per_pass`.
+  - Error motor → patch d'error + continua + estat ERROR a SAP.
+  - Error patch → registrat, NO recursiu, continua amb la següent.
+  - Dry-run → cap patch real.
+  - Dry-run + error motor → cap patch tampoc.
+  - Conn BD tancada sempre (fins amb excepció).
+  - `run_forever` s'atura amb stop_event.
+  - `run_forever` continua després d'una passada que peta.
+
+### Verificació
+- `pytest tests/test_sync_worker.py -v` → 13/13 OK.
+- `pytest tests/` → **116/116 OK** (103 previs + 13 nous). Cap regressió.
+- `python run_sync.py --help` → mostra ajuda amb totes les opcions.
+- `python -c "import run_sync"` → OK (verifica que tots els imports encaixen).
+
+### Commit
+Pendent commit + push.
+
+### Notes de disseny
+- La injecció de dependències (`connectar_fn`, `obtenir_comandes_fn`, etc.) fa que el worker sigui testable sense mocks globals — facilita l'aïllament de tests.
+- El worker no fa autologin al SLClient: el CLI ho fa explícitament abans d'entrar al loop, per fallar aviat en cas de credencials incorrectes.
+- Sense lockfile per prevenir 2 workers simultanis — el servei NSSM al deployment (§2.6) ja garanteix una única instància. Es podrà afegir un lockfile portable (msvcrt/fcntl) si algun dia canvien les circumstàncies.
+
+---
+
+## Propers passos
 
 **§2.5 — Endpoint admin monitoratge**:
 - `GET /api/admin/sync-status` a `app.py`.
