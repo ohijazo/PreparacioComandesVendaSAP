@@ -1,10 +1,23 @@
 name: CI
 
+# NOTA (2026-07-27): trigger automàtic desactivat.
+#
+# Els tests requereixen els mòduls compartits `models.py`, `regles.py` i
+# `mailer.py` del repo germà `preparacioComandesVenda` (Kais), que es carreguen
+# via `_bootstrap.py` amb `KAIS_APP_PATH`. Aquest repo NO està publicat a GitHub,
+# per tant el runner d'Ubuntu no hi té accés i els tests peten amb:
+#     RuntimeError: KAIS_APP_PATH no existeix
+#
+# Fins que es decideixi una estratègia (publicar Kais amb token secret, copiar
+# els 3 mòduls al repo SAP trencant compartició, o empaquetar-los com a pip
+# package), el CI només es pot disparar manualment via workflow_dispatch per
+# revisió puntual quan hi hagi context.
+#
+# Els tests SÍ es corren localment a l'entorn de dev (Windows amb Kais al mateix
+# disc P:) — 71 tests, pytest OK.
+
 on:
-  push:
-    branches: ['**']
-  pull_request:
-    branches: [main]
+  workflow_dispatch:  # només manual, no automàtic
 
 jobs:
   test:
