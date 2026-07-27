@@ -32,7 +32,7 @@ S'actualitza a cada commit rellevant. Complement a:
 | 2.0 | Proposta consultiva al consultor SAP | ✅ Enviada (commit `b86fbc2`) |
 | 2.1 | Client Service Layer aïllat + tests | ✅ Fet (commit `df1a1b9`) |
 | 2.2 | Detecció comandes amb `U_FCCalcular='S'` | ✅ Fet (commit `d1916da`) |
-| 2.3 | Format del resum textual (`sap_formatter.py`) | ⏳ Pendent |
+| 2.3 | Format del resum textual (`sap_formatter.py`) | ✅ Fet |
 | 2.4 | Worker sync (`sync_worker.py`) + entry point | ⏳ Pendent |
 | 2.5 | Endpoint admin monitoratge | ⏳ Pendent |
 | 2.6 | Deployment amb NSSM + validació end-to-end | ⏳ Pendent |
@@ -98,13 +98,48 @@ El comentari inicial (línies 35-43) diu que RF3, RF4, RF6 no s'apliquen — obs
 
 ---
 
-## Propers passos
+---
 
-**§2.3 — Format del resum textual** (`sap_formatter.py`):
-- Funció `formatar_resum(resultat) -> tuple[str, str]` que produeix `(text_resum, estat)` a partir del `Resultat` del motor.
-- Ex: `("3 palets · 120 sacs · palet europeu · CALCULAT", "CALCULAT")`.
-- Sense dependència de SAP; pure Python function.
-- Tests unitaris amb fixtures `Resultat`.
+## §2.3 Format del resum textual (2026-07-27)
+
+### Objectiu
+Funció pure Python que produeix el text del resum + l'estat a partir d'un `Resultat` del motor, per omplir els UDFs `ORDR.U_FCEmbalatgeResum` (Alfa 254) i `U_FCEmbalatgeEstat` (Alfa 30).
+
+### Canvis
+- **Nou fitxer** `sap_formatter.py`:
+  - `formatar_resum(resultat) -> tuple[str, str]` — signatura única.
+  - 3 formatters interns per estat: `_format_calculat`, `_format_sota_minim`, `_format_no_calculable`.
+  - Truncament automàtic a 254 chars amb `…` si excedeix.
+  - Helpers: `_primer_motiu` (extreu el primer motiu talladíssim al primer punt o salt de línia), `_describe_palets` (formata "N×descrip"), `_comptar_avisos` (compta AVÍS a traçabilitat).
+- **Nou fitxer** `tests/test_sap_formatter.py` — 13 tests cobrint:
+  - CALCULAT basic / multi tipus palet / sense palets / ignora palets lògics.
+  - CALCULAT_AMB_AVISOS afegeix comptador.
+  - SOTA_MINIM amb i sense missatge.
+  - NO_CALCULABLE amb i sense missatge.
+  - Truncament a 254 amb el·lipsi.
+  - Missatge tallat al primer punt / salt de línia.
+
+### Verificació
+- `pytest tests/test_sap_formatter.py -v` → 13/13 OK.
+- `pytest tests/` → **103/103 OK** (90 previs + 13 nous). Cap regressió.
+- **Prova contra el motor real** amb 5 comandes SAP:
+  - `268/26600028`: `"2 palets · 60 sacs · CALCULAT"` (29 chars).
+  - `268/26600052`: `"1 sacs · SOTA_MINIM · RF2 STOP: La comanda té 1 sacs..."` (132 chars).
+  - `268/26600112`: `"NO CALCULABLE · RF1 STOP: La comanda inclou articles a granel..."` (75 chars).
+  - `268/26600093`: `"100 palets · 2400 sacs · 100×palet plastic europeu 120x80 · CALCULAT"` (68 chars).
+  - `268/26600092`: `"189 palets · 7075 sacs · 70×palet fusta europeu 120x80, 119×1030 · CALCULAT"` (75 chars).
+
+Tots ben dins el límit 254 amb marge sobrat.
+
+### Commit
+Pendent commit + push.
+
+### Observació menor
+En una prova (`268/26600092`) apareix `119×1030` (art_codi enlloc de descripció). El `PaletResum.art_descrip` és `"1030"` per aquest palet — el `_describe_palets` ho reflecteix fidelment. No és un problema del formatter, és consistent amb les dades del motor.
+
+---
+
+## Propers passos
 
 **§2.4 — Worker sync** (`sync_worker.py` + `run_sync.py`):
 - Uneix motor + formatter + SLClient.
