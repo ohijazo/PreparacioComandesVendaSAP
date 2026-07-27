@@ -16,31 +16,40 @@ Mapeig taules Kais → SAP B1:
 - `PREUSCLIENTS.xlsx` (Excel) → `@SEITARIFACAB` + `@SEITARIFADET` (UDT tarifes per BP)
 - `INFOANEX` → **no aplica** (UDFs són estàtics)
 
-UDFs SAP confirmats (consultor SAP ja els va crear):
-- OITM.SalUnitMsr → tunitat (S05/S10/.../S25/GRA/UNI)
-- OITM.SalPackUn → kg per sac
-- OITM.U_SEIUnitatsApilables → cantidadapilable
-- OITM.U_SEIUnitatsPalet → uxc
-- OITM.U_SEIPaletProd → palet_producte_estoc ('-' i '' = sense palet)
-- CRD1.U_SEITIPOD → tipus_descarrega ('P'=PALET, 'M'=MANUAL, '-'=no definit)
-  (NOTA: `U_SEIDESCARGA` NO és el tipus de descàrrega — és el nombre de descarregadors: '1' o '2' persones)
-- CRD1.U_SEISACOSB → sacs_x_base (nvarchar → int)
-- CRD1.U_SEIMAXSP → max_sacs_palet
-- CRD1.U_SEIPEDIDOM → sacs_comanda_minima
-- CRD1.U_SEIPREVAL → preval_direccio ('S'=Sí, 'N'=No)
+UDFs / camps SAP mapejats:
 
-Concept `sac_colagne_normal` — **derivat** de la família comercial:
-- `OITM.U_SEIFamCialCat = 'MOULIN DE COLAGNE'` → sac_colagne_normal=True (40 articles a SAP test).
+Articles (OITM):
+- SalUnitMsr → tunitat (S05/S10/.../S25/GRA/UNI)  [standard SAP]
+- SalPackUn → kg per sac  [standard SAP]
+- U_SEIUnitatsApilables → cantidadapilable  [UDF]
+- U_SEIUnitatsPalet → uxc  [UDF]
+- U_SEIPaletProd → palet_producte_estoc ('-' i '' = sense palet)  [UDF]
+- QryGroup2 → dimensio_especial (4 articles marcats post-fix VBA)  [Query Group]
+- QryGroup3 → sac_25_especial (13 articles marcats)  [Query Group]
 
-UDFs REALMENT PENDENTS (crear amb el consultor SAP):
-- OITM.<pendent> (Y/N) → dimensio_especial (flag booleà)
-- OITM.<pendent> (Y/N) → sac_25_especial (flag booleà)
-- OITM.<pendent> (numeric) → comanda_minima_produccio (kg mínims)
-  Alternativa: derivat parcialment de `U_SEIFamCialCat = 'ESPECIFICA'` (83 articles) però falta el kg exacte.
+Direccions client (CRD1):
+- U_SEITIPOD → tipus_descarrega ('P'=PALET, 'M'=MANUAL, '-'=no definit)  [UDF]
+  (NOTA: `U_SEIDESCARGA` NO és el tipus de descàrrega — és el nombre de
+  descarregadors: '1' o '2' persones.)
+- U_SEISACOSB → sacs_x_base (nvarchar → int)
+- U_SEIMAXSP → max_sacs_palet
+- U_SEIPEDIDOM → sacs_comanda_minima
+- U_SEIPREVAL → preval_direccio ('S'=Sí, 'N'=No)
 
-Fins que existeixin els UDFs pendents, els camps corresponents dels dataclasses
-es retornen com a False/None (comportament segur: RF3, RF4, RF6 no s'apliquen
-a aquests articles).
+Concepte `sac_colagne_normal` — derivat de la família comercial:
+- OITM.U_SEIFamCialCat = 'MOULIN DE COLAGNE' → sac_colagne_normal=True.
+  Font actualment usada; QryGroup4 (Sac Colagne Especial) també conté els 11
+  articles autoritatius de Kais però el motor manté el proxy per compatibilitat.
+
+Regles del motor a SAP (estat 2026-07-27):
+- ✅ RF1, RF2, RF5-RF14: totes actives amb dades reals.
+- ✅ RF4 (dimensio_especial): activa via QryGroup2 post-fix Kais BUG #2.
+- ✅ RF6 (sac_25_especial): activa via QryGroup3 (13 articles migrats).
+- ⏸️ RF3 (comanda_minima_produccio): DESACTIVADA a SAP — Kais tampoc l'aplica
+  actualment. Es podria activar creant un UDF nou a OITM (ex. U_FCComandaMinKg)
+  i migrant els 32 valors de Kais. No bloquejant.
+
+Detalls del recorregut de descoberta i validació: `tasks/validacio_sap.md` §1.
 """
 import _bootstrap  # noqa: F401 — insereix KAIS_APP_PATH a sys.path per als models compartits
 import logging
