@@ -12,3 +12,7 @@ __pycache__/
 instance/
 .flask_session/
 Thumbs.db
+.claude/
+logs/
+# Dumps de SPs internes SEIDOR — no committar codi de tercers.
+scripts/_dump_*.sql

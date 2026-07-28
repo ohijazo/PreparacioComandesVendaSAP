@@ -153,10 +153,21 @@ class SLClient:
         - 401: re-login + retry 1 vegada.
         - 5xx: backoff exponencial fins a `max_retries_5xx` intents totals.
         - Altres 4xx: propaga com a SLError.
+
+        Headers estàndard per PATCH/POST/DELETE:
+        - `Prefer: return=minimal` — evita que SL torni el document sencer i
+          re-validi tot el contingut al commit. Sense aquest header, PATCH
+          sobre Orders sovint falla amb error -1116 "Could not commit
+          transaction" perquè SAP intenta commit del document complet.
         """
         self._ensure_session()
         assert self._session is not None
         full_url = f"{self.url}/{path.lstrip('/')}"
+
+        # Headers específics per requests que muten dades
+        extra_headers = {}
+        if method.upper() in ("PATCH", "POST", "PUT", "DELETE"):
+            extra_headers["Prefer"] = "return=minimal"
 
         # 5xx retry loop
         last_resp: requests.Response | None = None
@@ -164,6 +175,7 @@ class SLClient:
             resp = self._session.request(
                 method, full_url,
                 json=json_body,
+                headers=extra_headers,
                 verify=self.verify,
                 timeout=self.timeout,
             )
@@ -176,6 +188,7 @@ class SLClient:
                 resp = self._session.request(
                     method, full_url,
                     json=json_body,
+                    headers=extra_headers,
                     verify=self.verify,
                     timeout=self.timeout,
                 )
@@ -211,9 +224,14 @@ class SLClient:
 
             # Altres 4xx: propagar
             if 400 <= resp.status_code < 500:
+                body = self._safe_body(resp)
+                logger.error(
+                    "SL %s %s → %d. Body: %s",
+                    method, path, resp.status_code, body,
+                )
                 raise SLError(
-                    f"Error {resp.status_code} a {method} {path}",
-                    status_code=resp.status_code, body=self._safe_body(resp),
+                    f"Error {resp.status_code} a {method} {path}: {body}",
+                    status_code=resp.status_code, body=body,
                 )
 
             # 2xx OK
