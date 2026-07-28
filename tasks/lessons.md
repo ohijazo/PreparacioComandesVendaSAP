@@ -79,3 +79,89 @@ passar (útils com a plantilla):
 - `find_gap001_callers.py` — cerca callers de GAP001*.
 - `find_order_interceptors.py` — Approval Templates / User Alerts / FS sobre ORDR.
 - `enum_sl_scripts.py` — enumeració de scripts SL registrats via API.
+
+---
+
+## L2 — Gotchas del PATCH sobre `Orders` via Service Layer
+
+**Data**: 2026-07-28.
+**Context**: implementació endpoint `/api/afegir-palets/<doc_entry>` que fa
+GET-modify-PATCH sobre `/Orders({N})/DocumentLines`.
+
+Aquests gotchas els vam descobrir empíricament (SAP no els documenta bé) i
+si no es coneixen fan perdre hores i poden **destruir dades de comandes**.
+
+### G2.1 — `DELETE /Orders(N)/DocumentLines(K)` NO existeix
+
+**Retorna**: `-5006 "The requested action is not supported for this object"`.
+**Alternativa**: marcar la línia amb `LineStatus="bost_Close"` via PATCH.
+Queda a `RDR1` però desapareix del formulari i no compta al workflow
+comercial.
+
+### G2.2 — `POST /Orders(N)/DocumentLines` (add subcollection) NO existeix
+
+**Retorna**: `-1008 "Command Not Found"`.
+**Alternativa**: veure G2.4 (afegir amb PATCH + placeholders).
+
+### G2.3 — `Close + altres modificacions` al mateix PATCH → `-5002`
+
+Missatge: `Document rows cannot be closed concurrently with the other
+document modifications you have made [DocumentLines.LineStatus][line: N]`.
+
+El PATCH que tanca una línia **NOMÉS** pot contenir `{LineNum, LineStatus}`.
+Qualsevol altre camp (fins i tot un UDF per netejar un marcador
+d'idempotència) es considera "altra modificació" i trenca.
+
+**Patró correcte**: separar en 2 PATCH:
+1. PATCH només-close (només `LineNum + LineStatus="bost_Close"` per cada línia).
+2. PATCH d'update/add.
+
+### G2.4 — `DocumentLines` sense placeholders → sobreescriu línies existents (DESTRUCTIU)
+
+Si al PATCH #2 envies només les línies noves sense `LineNum`, SAP les
+matcha per **posició** amb les línies existents del document i sobreescriu.
+Ja ens va **eliminar la línia `30150 FARINA Nº1`** de la comanda 92 durant
+els tests — vam poder-la recuperar de l'històric `ADO1`.
+
+**Patró correcte**: enviar un placeholder `{LineNum: X}` per **CADA
+línia existent** (obertes I tancades) + les noves sense `LineNum`. SAP
+preserva les existents intactes i afegeix les noves al final.
+
+```python
+body = {"DocumentLines":
+    [{"LineNum": l["LineNum"]} for l in current_lines_no_closing_ara]
+    + [nova_sense_linenum for nova in new_lines]
+}
+```
+
+Si ometem placeholders d'algunes línies existents (encara que estiguin
+tancades!) SAP reorganitza el document destructivament.
+
+### G2.5 — UDFs amb Valid Values no accepten `""` (cadena buida)
+
+Si crees un UDF amb Valid Values (S/N, Y/N, etc.), passar `""` retorna
+`-1004 "'' is not a valid value for property 'X'"`. Cal passar sempre un
+dels valors vàlids. Al nostre cas amb `U_FCAfegit` (S/N), el reset del
+marker s'ometia perquè el filtre ja usa `LineStatus == bost_Close` per
+saber quines ignorar.
+
+### G2.6 — Recuperació de dades: `ADO1` conserva històric complet
+
+Cada canvi a una Order genera una entrada nova a `ADOC` + versió completa
+de línies a `ADO1` (indexat per `LogInstanc`). Si algun test destrueix
+dades, es poden reconstruir del `Log1` (versió inicial).
+
+Script útil: `scripts/recuperar_comanda_92.py` (plantilla per veure
+històric d'una comanda concreta).
+
+### Implementació
+
+`SLClient.replace_marked_lines` (`sap_service_layer.py`) implementa la
+lògica completa amb tots aquests gotchas incorporats. Tests amb `responses`
+mock a `tests/test_afegir_palets.py`.
+
+### Regla per al futur
+
+**Abans d'inventar patró propi per PATCH sobre `Orders`, revisar aquests
+gotchas.** El SL té molt de comportament no documentat que només es
+descobreix trencant coses.

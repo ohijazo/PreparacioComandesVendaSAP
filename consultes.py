@@ -287,12 +287,24 @@ def _pes_per_tunitat(tunitat: str, sal_pack_un: float | None = None) -> float:
 
 
 def _palet_estoc_val(raw: str | None) -> str | None:
-    """`U_SEIPaletProd`: normalitza '', '-' → None (sense palet estoc)."""
+    """`U_SEIPaletProd`: normalitza '', '-' → None (sense palet estoc).
+
+    També normalitza codis de palet mal introduïts a SAP sense el zero
+    inicial. Els articles palet físics del grup 152 sempre tenen prefix
+    "01" a OITM (01000, 01010, 01030, 01060, etc.). Alguns articles de
+    negoci (ex: 32090 MEULE COLAGNE) tenen U_SEIPaletProd='1030' sense
+    el zero, cosa que trencaria el PATCH via SL amb -2028 (article no
+    trobat). Padding defensiu: si el valor és numèric de 4 dígits i
+    comença per '1', l'afegim el zero inicial.
+    """
     if raw is None:
         return None
     v = str(raw).strip()
     if v == "" or v == "-":
         return None
+    # Padding defensiu (articles palet són tots "01xxx")
+    if v.isdigit() and len(v) == 4 and v.startswith("1"):
+        v = "0" + v
     return v
 
 
@@ -430,7 +442,11 @@ _LINIES_SELECT = """
         l.LineNum AS linea_num,
         RTRIM(l.ItemCode) AS art_codi,
         RTRIM(l.Dscription) AS art_descrip,
-        l.Quantity AS linea_unidades,
+        -- linea_unidades = NOMBRE DE SACS. A SAP B1 això viu a RDR1.PackQty
+        -- ("Número de paquetes" al Fat Client). RDR1.Quantity són els kg totals
+        -- (l.Quantity = PackQty * SalPackUn). Fallback a Quantity si PackQty=0
+        -- (articles sense paquet definit, ex: GRA/UNI que RF1 exclou igualment).
+        COALESCE(NULLIF(l.PackQty, 0), l.Quantity) AS linea_unidades,
         RTRIM(i.SalUnitMsr) AS tunitat,
         i.SalPackUn AS sal_pack_un,
         i.U_SEIUnitatsPalet AS uxc,
@@ -900,3 +916,37 @@ def obtenir_comandes_a_calcular(conn) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def obtenir_metadata_ordr_per_doc_entry(conn, doc_entry: int) -> dict:
+    """Retorna metadades bàsiques d'una comanda a partir del DocEntry.
+
+    Necessari per l'endpoint `/api/afegir-palets/<doc_entry>` — el client
+    (B1UP) coneix el DocEntry (clau interna SAP) però el motor treballa amb
+    `(Series, DocNum)`. També retorna un `whs_code` de referència agafat de
+    la primera línia RDR1, útil com a default per línies palet noves.
+
+    Retorna dict amb: series, docnum, card_code, doc_status, whs_code.
+    `whs_code` pot ser None si la comanda encara no té cap línia.
+
+    Raises ValueError si la comanda no existeix.
+    """
+    sql = """
+        SELECT h.Series, h.DocNum, RTRIM(h.CardCode) AS CardCode,
+               h.DocStatus,
+               (SELECT TOP 1 RTRIM(l.WhsCode) FROM RDR1 l WITH (NOLOCK)
+                 WHERE l.DocEntry = h.DocEntry AND l.WhsCode IS NOT NULL
+                 ORDER BY l.LineNum) AS WhsCode
+          FROM ORDR h WITH (NOLOCK)
+         WHERE h.DocEntry = ?
+    """
+    row = conn.execute(sql, doc_entry).fetchone()
+    if row is None:
+        raise ValueError(f"Comanda amb DocEntry={doc_entry} no trobada a ORDR")
+    return {
+        "series": str(int(row.Series)),
+        "docnum": str(int(row.DocNum)),
+        "card_code": row.CardCode or "",
+        "doc_status": row.DocStatus or "",
+        "whs_code": row.WhsCode or None,
+    }

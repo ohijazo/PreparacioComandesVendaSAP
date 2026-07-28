@@ -9,9 +9,15 @@ import time
 import threading
 from flask import Flask, render_template, jsonify, request, Response
 from motor import calcular_embalatges, calcular_embalatges_agrupats, validar_dades_mestres
-from consultes import connectar, obtenir_ultimes_comandes, obtenir_comanda_per_numero, obtenir_recompte_comandes, obtenir_magatzems_from_comandes, obtenir_noms_magatzems, obtenir_titols_infoanex, obtenir_titols_infoanex_clienvio
+from consultes import connectar, obtenir_ultimes_comandes, obtenir_comanda_per_numero, obtenir_recompte_comandes, obtenir_magatzems_from_comandes, obtenir_noms_magatzems, obtenir_titols_infoanex, obtenir_titols_infoanex_clienvio, obtenir_metadata_ordr_per_doc_entry
 from models import Estat  # compartit via _bootstrap
 from mailer import enviar_correu_autoritzacio, LLINDAR_KG_AUTORITZACIO, obtenir_defaults_destinataris  # compartit via _bootstrap
+from sap_service_layer import SLClient, SLError
+from sap_line_builder import (
+    generar_linies_palet_sap,
+    MARCADOR_LINIA_PALET_UDF,
+    MARCADOR_LINIA_PALET_VALOR,
+)
 
 # ============================================================
 # Cache amb TTL + single-flight per endpoints de polling
@@ -464,6 +470,125 @@ def api_calcular_agrupat():
     except Exception as e:
         logger.error("Calcular agrupat: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": f"Error intern: {str(e)}"}), 500
+
+
+# ============================================================
+# /api/afegir-palets — Botó B1UP al Sales Order de SAP
+# ============================================================
+def _sl_client() -> SLClient:
+    """Crea un SLClient a partir de les variables d'entorn SAP_SL_*.
+
+    Requereix .env amb: SAP_SL_URL, SAP_SL_COMPANY, SAP_SL_USER,
+    SAP_SL_PASSWORD, opcional SAP_SL_VERIFY_SSL, SAP_SL_TIMEOUT.
+    """
+    url = os.environ["SAP_SL_URL"]
+    company = os.environ["SAP_SL_COMPANY"]
+    user = os.environ["SAP_SL_USER"]
+    pwd = os.environ["SAP_SL_PASSWORD"]
+    verify = os.environ.get("SAP_SL_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
+    timeout = int(os.environ.get("SAP_SL_TIMEOUT", "15"))
+    return SLClient(url, company, user, pwd, verify=verify, timeout=timeout)
+
+
+@app.route("/api/afegir-palets/<int:doc_entry>", methods=["POST"])
+def api_afegir_palets(doc_entry: int):
+    """Calcula embalatges i afegeix línies palet físiques a la comanda SAP.
+
+    Invocat pel botó B1UP al formulari Sales Order (form 139). El botó
+    passa el DocEntry actual i aquest endpoint:
+      1. Cerca (Series, DocNum, WhsCode) a ORDR/RDR1.
+      2. Executa el motor RF1-RF14 amb dades de SAP.
+      3. Filtra els palets físics (`es_fisic=True`) i genera línies OData.
+      4. Substitueix netament les línies palet velles (marcades amb
+         U_FCAfegit='Y') per les noves (patró GET-modify-PATCH via SL).
+
+    Query params:
+      forcar=1  → invalidar cache del motor abans de calcular.
+
+    Retorna JSON amb estructura:
+      { ok, doc_entry, estat, linies_afegides, linies_esborrades,
+        resum:{total_palets,total_sacs}, missatges }
+    """
+    t0 = time.time()
+    conn = None
+    try:
+        # 1. Metadades comanda a partir del DocEntry
+        conn = connectar()
+        meta = obtenir_metadata_ordr_per_doc_entry(conn, doc_entry)
+        conn.close()
+        conn = None
+
+        if meta["doc_status"] != "O":
+            return jsonify({
+                "ok": False,
+                "error": f"La comanda {doc_entry} no està oberta (DocStatus={meta['doc_status']!r})",
+            }), 400
+
+        # 2. Càlcul del motor
+        forcar = request.args.get("forcar", "0") == "1"
+        resultat = calcular_embalatges(meta["series"], meta["docnum"], forcar=forcar)
+
+        if resultat.estat in (Estat.NO_CALCULABLE, Estat.SOTA_MINIM):
+            return jsonify({
+                "ok": False,
+                "doc_entry": doc_entry,
+                "estat": resultat.estat.value,
+                "missatges": resultat.missatges,
+                "error": f"Comanda no processable ({resultat.estat.value})",
+            }), 400
+
+        # 3. Generar línies palet físiques
+        linies_noves = generar_linies_palet_sap(resultat.palets, meta["whs_code"])
+
+        # 4. Substituir línies velles via SL (o esborrar si no n'hi ha de noves)
+        with _sl_client() as sl:
+            stats = sl.replace_marked_lines(
+                doc_entry,
+                MARCADOR_LINIA_PALET_UDF,
+                MARCADOR_LINIA_PALET_VALOR,
+                linies_noves,
+            )
+
+        elapsed = time.time() - t0
+        logger.info(
+            "afegir-palets DocEntry=%d Series=%s/DocNum=%s → +%d -%d (%.2fs)",
+            doc_entry, meta["series"], meta["docnum"],
+            stats["added"], stats["removed"], elapsed,
+        )
+
+        return jsonify({
+            "ok": True,
+            "doc_entry": doc_entry,
+            "estat": resultat.estat.value,
+            "linies_afegides": stats["added"],
+            "linies_esborrades": stats["removed"],
+            "resum": {
+                "total_palets": len(resultat.embalatges),
+                "total_sacs": sum(e.total_sacs for e in resultat.embalatges),
+            },
+            "missatges": resultat.missatges,
+        })
+
+    except ValueError as e:
+        # Comanda no trobada, DocEntry invàlid…
+        logger.warning("afegir-palets(%d): %s", doc_entry, e)
+        return jsonify({"ok": False, "error": str(e)}), 404
+    except SLError as e:
+        logger.error("afegir-palets(%d) SL error: %s", doc_entry, e)
+        return jsonify({
+            "ok": False,
+            "error": f"Service Layer: {e}",
+            "sap_code": getattr(e, "status_code", None),
+        }), 502
+    except Exception as e:
+        logger.exception("afegir-palets(%d) error intern", doc_entry)
+        return jsonify({"ok": False, "error": f"Error intern: {e}"}), 500
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 @app.route("/api/exportar-csv/<path:serie_numero>")
