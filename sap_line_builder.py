@@ -8,9 +8,10 @@ mòdul genera la llista de dicts amb el format que espera Service Layer per
 Cada palet físic (`es_fisic=True`) es converteix en una línia amb:
 - `ItemCode` = `art_codi` del palet (ex: `01030`, `01010`).
 - `Quantity` = nombre de palets d'aquell tipus.
-- `UnitPrice=0` + `PriceAfterVAT=0` + `DiscountPercent=0` → línia sense import
-  (l'operari no factura el palet, només consta per traçabilitat logística).
-- `U_FCAfegit='Y'` → marcador per identificar-les i substituir-les netament
+- **Sense** camps de preu: SAP aplica el preu del client igual que si
+  l'operari afegís la línia manualment (preu especial per BP+Item,
+  llista de preus del BP a `OCRD.ListNum`, o preu per defecte de OITM).
+- `U_FCAfegit='S'` → marcador per identificar-les i substituir-les netament
   quan l'operari torni a clicar el botó (idempotència).
 - `TaxCode` opcional via variable d'entorn `SAP_TAX_CODE_PALET`. Si buida,
   SAP fa fallback al TaxCode per defecte de l'article a OITM.
@@ -75,9 +76,6 @@ def generar_linies_palet_sap(
         entry: dict[str, Any] = {
             "ItemCode": p.art_codi,
             "Quantity": int(p.quantitat),
-            "UnitPrice": 0,
-            "PriceAfterVAT": 0,
-            "DiscountPercent": 0,
             "FreeText": FREE_TEXT_MARKER,
             MARCADOR_LINIA_PALET_UDF: MARCADOR_LINIA_PALET_VALOR,
         }

@@ -265,30 +265,34 @@ class SLClient:
         new_lines: list[dict[str, Any]],
         header_fields: dict[str, Any] | None = None,
     ) -> dict[str, int]:
-        """Substitueix les línies "marcades" d'una Order i afegeix noves.
+        """Sincronitza les línies "marcades" d'una Order amb `new_lines`.
 
-        Important sobre el patró SAP B1 SL:
-        - El SL **NO permet** DELETE de línies individuals (retorna -5006).
-        - El SL **NO esborra** línies quan el PATCH del document omet una
-          línia existent — el PATCH només actualitza les línies presents
-          (per LineNum) i preserva la resta.
-        - L'única manera "neta" d'invalidar una línia és marcar-la com
-          tancada: `LineStatus="bost_Close"`. La línia segueix a RDR1 però
-          desapareix del formulari i no compta a albarà/factura.
+        Aplica un patró de **reciclatge in-place** per minimitzar residus
+        tancats: si una línia palet oberta té el mateix `ItemCode` que
+        una `new_line`, s'actualitza in-place (PATCH amb LineNum + camps
+        nous) en lloc de tancar-la i crear-ne una nova.
 
-        Passos:
-        1. GET `/Orders({doc_entry})?$select=DocEntry,DocumentLines` —
-           obtenir totes les línies actuals.
-        2. Identificar línies "obertes" amb `line[marker_field] == marker_value`
-           (les que un càlcul anterior va inserir com a palets del motor).
-        3. PATCH `/Orders({doc_entry})` amb:
-           - Per cada línia a tancar: `{LineNum, LineStatus="bost_Close"}`
-             — cap altre camp (SAP rebutja "close + altres canvis" al
-             mateix PATCH amb -5002). El filtre de la propera crida ja
-             ignorarà les línies tancades, no cal resetejar el marker.
-           - Per cada `new_line`: dict SENSE `LineNum` (SAP auto-numera).
+        Comportament:
+        - Línies palet **obertes** amb `ItemCode` coincident amb alguna
+          `new_line` → **PATCH in-place** (`Quantity` i altres camps
+          actualitzats). Ni gris ni acumulació.
+        - Línies palet **obertes** sense coincidència → tancades
+          (`LineStatus="bost_Close"`). Queden grises però no compten a
+          totals. És l'única manera: SL no permet DELETE (-5006) i
+          canviar `ItemCode` via PATCH també falla (-1029).
+        - `new_line` sense coincidència entre les obertes → afegida com
+          a nova línia.
+        - Línies no marcades (usuari) i palet ja tancades → intactes
+          (placeholders `{LineNum: X}` per no reorganitzar el document).
 
-        Retorna `{"removed": N (línies tancades), "added": M, "kept": K}`.
+        Estructura de crides:
+        - **PATCH #1** (només si cal tancar): payload de tancament pur.
+          SL rebutja "close + altres modificacions" al mateix PATCH
+          amb -5002, per això va aïllat.
+        - **PATCH #2**: `DocumentLines` amb placeholders + updates
+          in-place + noves. Un sol payload.
+
+        Retorna `{"removed": T, "updated": U, "added": A, "kept": K}`.
 
         Raises `SLError` si alguna crida falla.
         """
@@ -307,27 +311,37 @@ class SLClient:
 
         current_lines = body.get("DocumentLines", []) or []
 
-        # 2. Classificar: quines tanquem (marcades i obertes), quines preservem
-        #    al placeholder del PATCH #2 (TOTES les que no tanquem, incloent
-        #    les ja tancades — sinó SAP les tracta com "no existeixen" i pot
-        #    reorganitzar el document destructivament).
-        to_close = [
+        # 2. Separar palet obertes (candidates a reciclar) vs la resta
+        open_marked = [
             l for l in current_lines
             if l.get(marker_field) == marker_value
             and l.get("LineStatus") != "bost_Close"
         ]
-        to_close_ids = {l["LineNum"] for l in to_close}
-        to_preserve = [
-            l for l in current_lines
-            if l["LineNum"] not in to_close_ids
-        ]
+        open_marked_ids = {l["LineNum"] for l in open_marked}
+        others = [l for l in current_lines if l["LineNum"] not in open_marked_ids]
 
-        # 3. PATCH #1: tancar línies velles (si n'hi ha).
-        #    - SAP no permet "tancar línies + altres modificacions" al mateix
-        #      PATCH (`-5002`). El payload de tancament NOMÉS pot dur
-        #      `LineNum + LineStatus`; qualsevol altre camp trenca.
-        #    - No cal resetejar el marker: el filtre ignora línies
-        #      `bost_Close` a la propera crida.
+        # 3. Emparellar new_lines amb open_marked per ItemCode (in-place)
+        to_update: list[dict[str, Any]] = []
+        to_add: list[dict[str, Any]] = []
+        consumed: set[int] = set()
+        for nl in new_lines:
+            candidate = next(
+                (l for l in open_marked
+                 if l["LineNum"] not in consumed
+                 and l.get("ItemCode") == nl.get("ItemCode")),
+                None,
+            )
+            payload = {k: v for k, v in nl.items() if k != "LineNum"}
+            if candidate is not None:
+                to_update.append({"LineNum": candidate["LineNum"], **payload})
+                consumed.add(candidate["LineNum"])
+            else:
+                to_add.append(payload)
+
+        to_close = [l for l in open_marked if l["LineNum"] not in consumed]
+
+        # 4. PATCH #1: tancament pur (només si cal).
+        #    SL rebutja close + altres modificacions al mateix PATCH (-5002).
         if to_close:
             close_body: dict[str, Any] = {
                 "DocumentLines": [
@@ -337,27 +351,18 @@ class SLClient:
             }
             self._request("PATCH", f"Orders({doc_entry})", json_body=close_body)
 
-        # 4. PATCH #2: afegir línies noves + opcional header_fields.
-        #    Patró crític per no destruir línies existents: enviem un
-        #    "placeholder" `{LineNum: X}` per **cada línia existent** que
-        #    NO acabem de tancar (obertes I ja tancades). SAP les
-        #    preserva intactes. Les noves van SENSE `LineNum` (SAP els
-        #    assigna consecutivament al final).
-        #    Sense placeholders, o omitint alguns, SAP pot: (a)
-        #    sobreescriure línies existents amb les noves per índex
-        #    posicional, (b) rebutjar amb `-1029 Field cannot be updated`
-        #    perquè intenta canviar ItemCode d'una línia existent, o
-        #    (c) reorganitzar l'ordre. Empíricament, cal enviar
-        #    placeholder per TOTES.
+        # 5. PATCH #2: updates in-place + noves + placeholders de la resta.
+        #    Cal enviar placeholder `{LineNum: X}` per CADA línia existent
+        #    no tancada ni actualitzada (usuari + palet tancades) — sinó
+        #    SAP reorganitza el document destructivament (G2.4).
         add_body: dict[str, Any] = {}
-        if new_lines:
-            add_body["DocumentLines"] = (
-                [{"LineNum": l["LineNum"]} for l in to_preserve]
-                + [
-                    {k: v for k, v in nl.items() if k != "LineNum"}
-                    for nl in new_lines
-                ]
-            )
+        doc_lines: list[dict[str, Any]] = (
+            [{"LineNum": l["LineNum"]} for l in others]
+            + to_update
+            + to_add
+        )
+        if to_update or to_add:
+            add_body["DocumentLines"] = doc_lines
         if header_fields:
             add_body.update(header_fields)
 
@@ -366,8 +371,9 @@ class SLClient:
 
         return {
             "removed": len(to_close),
-            "added": len(new_lines),
-            "kept": len(current_lines) - len(to_close),
+            "updated": len(to_update),
+            "added": len(to_add),
+            "kept": len(others),
         }
 
     # ------------------------------------------------------------------

@@ -506,8 +506,8 @@ def api_afegir_palets(doc_entry: int):
       forcar=1  → invalidar cache del motor abans de calcular.
 
     Retorna JSON amb estructura:
-      { ok, doc_entry, estat, linies_afegides, linies_esborrades,
-        resum:{total_palets,total_sacs}, missatges }
+      { ok, doc_entry, estat, linies_afegides, linies_actualitzades,
+        linies_esborrades, resum:{total_palets,total_sacs}, missatges }
     """
     t0 = time.time()
     conn = None
@@ -528,7 +528,7 @@ def api_afegir_palets(doc_entry: int):
         forcar = request.args.get("forcar", "0") == "1"
         resultat = calcular_embalatges(meta["series"], meta["docnum"], forcar=forcar)
 
-        if resultat.estat in (Estat.NO_CALCULABLE, Estat.SOTA_MINIM):
+        if resultat.estat == Estat.NO_CALCULABLE:
             return jsonify({
                 "ok": False,
                 "doc_entry": doc_entry,
@@ -536,6 +536,9 @@ def api_afegir_palets(doc_entry: int):
                 "missatges": resultat.missatges,
                 "error": f"Comanda no processable ({resultat.estat.value})",
             }), 400
+        # SOTA_MINIM: el motor calcula igualment la proposta d'embalatge (com
+        # a Kais). S'afegeixen les línies palet perquè l'operari les vegi;
+        # els missatges de RF2 STOP viatgen al camp `missatges` per avís.
 
         # 3. Generar línies palet físiques
         linies_noves = generar_linies_palet_sap(resultat.palets, meta["whs_code"])
@@ -551,9 +554,9 @@ def api_afegir_palets(doc_entry: int):
 
         elapsed = time.time() - t0
         logger.info(
-            "afegir-palets DocEntry=%d Series=%s/DocNum=%s → +%d -%d (%.2fs)",
+            "afegir-palets DocEntry=%d Series=%s/DocNum=%s → +%d ~%d -%d (%.2fs)",
             doc_entry, meta["series"], meta["docnum"],
-            stats["added"], stats["removed"], elapsed,
+            stats["added"], stats.get("updated", 0), stats["removed"], elapsed,
         )
 
         return jsonify({
@@ -561,6 +564,7 @@ def api_afegir_palets(doc_entry: int):
             "doc_entry": doc_entry,
             "estat": resultat.estat.value,
             "linies_afegides": stats["added"],
+            "linies_actualitzades": stats.get("updated", 0),
             "linies_esborrades": stats["removed"],
             "resum": {
                 "total_palets": len(resultat.embalatges),

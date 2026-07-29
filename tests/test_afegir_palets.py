@@ -70,9 +70,10 @@ def test_generar_linies_palets_fisics_normal():
     l1, l2 = linies
     assert l1["ItemCode"] == "01030"
     assert l1["Quantity"] == 3
-    assert l1["UnitPrice"] == 0
-    assert l1["PriceAfterVAT"] == 0
-    assert l1["DiscountPercent"] == 0
+    # Cap camp de preu: SAP aplicarà el preu del client (BP+Item, llista, etc.)
+    assert "UnitPrice" not in l1
+    assert "PriceAfterVAT" not in l1
+    assert "DiscountPercent" not in l1
     assert l1["U_FCAfegit"] == "S"
     assert l1["WarehouseCode"] == "01"
     assert "FreeText" in l1
@@ -169,10 +170,10 @@ def test_generar_linies_agrega_mateix_itemcode():
 # ============================================================
 
 @responses.activate
-def test_replace_marked_lines_tanca_marcades_i_afegeix_noves():
-    """Cas típic: comanda amb 3 línies (1 usuari + 2 marcades palet). El PATCH
-    ha d'enviar només instruccions de tancar les 2 marcades + 2 noves palet.
-    NO envia la línia usuari (SAP la preserva automàticament)."""
+def test_reciclatge_in_place_mateix_itemcode():
+    """Cas típic recàlcul: les palet obertes tenen mateix ItemCode que les
+    noves → PATCH in-place (Qty actualitzada), sense tancar ni acumular
+    residus grisos. NO envia cap PATCH de tancament."""
     _login_response()
 
     responses.add(
@@ -195,36 +196,73 @@ def test_replace_marked_lines_tanca_marcades_i_afegeix_noves():
     c.login()
 
     new_lines = [
-        {"ItemCode": "01030", "Quantity": 3, "U_FCAfegit": "S", "UnitPrice": 0},
-        {"ItemCode": "01010", "Quantity": 2, "U_FCAfegit": "S", "UnitPrice": 0},
+        {"ItemCode": "01030", "Quantity": 3, "U_FCAfegit": "S"},
+        {"ItemCode": "01010", "Quantity": 2, "U_FCAfegit": "S"},
     ]
     stats = c.replace_marked_lines(126, "U_FCAfegit", "S", new_lines)
 
-    assert stats == {"removed": 2, "added": 2, "kept": 1}
+    assert stats == {"removed": 0, "updated": 2, "added": 0, "kept": 1}
+
+    # Un sol PATCH — cap tancament necessari
+    patch_calls = [call for call in responses.calls if call.request.method == "PATCH"]
+    assert len(patch_calls) == 1
+
+    patch_body = json.loads(patch_calls[0].request.body)
+    lines = patch_body["DocumentLines"]
+    # Placeholder L0 (usuari) + update L1 (01030 Q=3) + update L2 (01010 Q=2)
+    assert len(lines) == 3
+    assert lines[0] == {"LineNum": 0}
+    assert lines[1] == {"LineNum": 1, "ItemCode": "01030", "Quantity": 3, "U_FCAfegit": "S"}
+    assert lines[2] == {"LineNum": 2, "ItemCode": "01010", "Quantity": 2, "U_FCAfegit": "S"}
+
+
+@responses.activate
+def test_reciclatge_mixt_update_tanca_i_afegeix():
+    """Cas complex: palet vella 01030 casa amb nova 01030 (update);
+    palet vella 01010 no casa amb res (tanca); nova 01050 no té vella
+    (afegir). Prova els 3 camins en una sola crida."""
+    _login_response()
+
+    responses.add(
+        responses.GET, f"{URL}/Orders(700)",
+        json={
+            "DocEntry": 700,
+            "DocumentLines": [
+                {"LineNum": 0, "ItemCode": "30001", "Quantity": 50, "U_FCAfegit": "N", "LineStatus": "bost_Open"},
+                {"LineNum": 1, "ItemCode": "01030", "Quantity": 2,  "U_FCAfegit": "S", "LineStatus": "bost_Open"},
+                {"LineNum": 2, "ItemCode": "01010", "Quantity": 1,  "U_FCAfegit": "S", "LineStatus": "bost_Open"},
+            ],
+        },
+        status=200,
+    )
+    responses.add(responses.PATCH, f"{URL}/Orders(700)", status=204)
+
+    c = _make_client()
+    c.login()
+
+    new_lines = [
+        {"ItemCode": "01030", "Quantity": 5, "U_FCAfegit": "S"},  # casa amb L1
+        {"ItemCode": "01050", "Quantity": 1, "U_FCAfegit": "S"},  # no casa → nova
+    ]
+    stats = c.replace_marked_lines(700, "U_FCAfegit", "S", new_lines)
+
+    assert stats == {"removed": 1, "updated": 1, "added": 1, "kept": 1}
 
     patch_calls = [call for call in responses.calls if call.request.method == "PATCH"]
     assert len(patch_calls) == 2
 
-    # PATCH #1: tancament pur (2 línies palet velles)
+    # PATCH #1: tancament de L2 (01010 no reciclada)
     close_body = json.loads(patch_calls[0].request.body)
-    assert close_body == {
-        "DocumentLines": [
-            {"LineNum": 1, "LineStatus": "bost_Close"},
-            {"LineNum": 2, "LineStatus": "bost_Close"},
-        ]
-    }
+    assert close_body == {"DocumentLines": [{"LineNum": 2, "LineStatus": "bost_Close"}]}
 
-    # PATCH #2: placeholder de la línia usuari (L0, no tancada) + 2 noves.
-    # SAP interpreta {LineNum: X} sense altres camps com "preserva'm intacta L X"
-    # i les noves sense LineNum s'afegeixen al final.
+    # PATCH #2: placeholder L0 + update L1 + nova 01050
     add_body = json.loads(patch_calls[1].request.body)
-    add_lines = add_body["DocumentLines"]
-    assert len(add_lines) == 3
-    assert add_lines[0] == {"LineNum": 0}  # placeholder línia usuari L0
-    assert "LineNum" not in add_lines[1]
-    assert "LineNum" not in add_lines[2]
-    assert add_lines[1]["Quantity"] == 3
-    assert add_lines[2]["Quantity"] == 2
+    lines = add_body["DocumentLines"]
+    assert len(lines) == 3
+    assert lines[0] == {"LineNum": 0}
+    assert lines[1] == {"LineNum": 1, "ItemCode": "01030", "Quantity": 5, "U_FCAfegit": "S"}
+    assert lines[2] == {"ItemCode": "01050", "Quantity": 1, "U_FCAfegit": "S"}
+    assert "LineNum" not in lines[2]
 
 
 @responses.activate
@@ -251,7 +289,7 @@ def test_replace_marked_lines_primer_calcul_sense_marcades():
     new_lines = [{"ItemCode": "01030", "Quantity": 1, "U_FCAfegit": "S"}]
     stats = c.replace_marked_lines(200, "U_FCAfegit", "S", new_lines)
 
-    assert stats == {"removed": 0, "added": 1, "kept": 1}
+    assert stats == {"removed": 0, "updated": 0, "added": 1, "kept": 1}
 
     patch_body = json.loads(
         [c for c in responses.calls if c.request.method == "PATCH"][0].request.body
@@ -286,7 +324,7 @@ def test_replace_marked_lines_new_lines_buit_nomes_tanca():
 
     stats = c.replace_marked_lines(300, "U_FCAfegit", "S", [])
 
-    assert stats == {"removed": 1, "added": 0, "kept": 1}
+    assert stats == {"removed": 1, "updated": 0, "added": 0, "kept": 1}
 
     patch_body = json.loads(
         [c for c in responses.calls if c.request.method == "PATCH"][0].request.body
@@ -322,7 +360,7 @@ def test_replace_marked_lines_marcades_ja_tancades_no_es_re_processen():
         {"ItemCode": "01030", "Quantity": 3, "U_FCAfegit": "S"},
     ])
 
-    assert stats == {"removed": 0, "added": 1, "kept": 2}
+    assert stats == {"removed": 0, "updated": 0, "added": 1, "kept": 2}
 
     patch_body = json.loads(
         [c for c in responses.calls if c.request.method == "PATCH"][0].request.body

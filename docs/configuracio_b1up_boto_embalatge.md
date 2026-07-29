@@ -1,153 +1,137 @@
 # Configuració B1UP — Botó "Calcular embalatges" al Sales Order
 
-Aquesta guia configura un **Function Button** dins B1UP de Boyum que
-apareix al formulari **Comanda de venda** (form 139) de SAP B1. Al clicar,
-crida l'endpoint Python `POST /api/afegir-palets/<DocEntry>` que:
+Aquesta guia configura el botó **"Calcular embalatges"** dins B1UP de
+Boyum que apareix al formulari **Comanda de venda** (form 139) de SAP B1.
+Al clicar, executa un petit codi C# que:
 
-1. Executa el motor RF1-RF14 amb les dades reals de la comanda.
-2. Insereix línies físiques de palet (`01030 PALET FUSTA EUROPEU`,
-   `01010 BASE PALET`, etc.) a la mateixa comanda amb preu 0 i marcades
-   amb `U_FCAfegit='Y'`.
-3. Refresca el formulari perquè l'operari vegi les línies noves.
+1. Verifica que la comanda estigui desada i sense canvis pendents.
+2. Fa `POST http://localhost:5002/api/afegir-palets/<DocEntry>` al Flask.
+3. Flask executa el motor RF1-RF14 i insereix les línies palet físiques
+   (`01030 PALET FUSTA EUROPEU`, `01010 BASE PALET`, `01060 PALET FUSTA
+   AMERICA`, etc.) amb `U_FCAfegit='S'` per idempotència.
+4. Refresca automàticament el registre del form perquè l'operari vegi les
+   línies noves sense haver de clicar cap altre botó.
 
 ## Prerequisits
 
-1. **UDF `RDR1.U_FCAfegit`** ja creat — veure `docs/creacio_udf_rdr1_afegit.md`.
-2. **App Flask corrent al port 5002** al servidor
+1. **UDF `RDR1.U_FCAfegit`** creat — veure `docs/creacio_udf_rdr1_afegit.md`.
+2. **App Flask** corrent al port 5002 al servidor
    (`http://<host-app>:5002/api/afegir-palets/<N>`).
 3. **B1UP instal·lat i configurat** al Fat Client de SAP.
 4. **Accés al B1UP Configurator** amb l'usuari SAP que fa la config.
 
-## Pas 1 — Obrir el B1UP Configurator
+## Pas 1 — Crear la Función Universal (UF-038)
 
-1. Dins SAP Fat Client, menú **Boyum IT → B1 Usability Package → Configurator**
-   (o Ctrl+Shift+F12, depenent de la versió).
-2. Es carrega la interfície B1UP amb l'arbre de mòduls.
-
-## Pas 2 — Crear una nova Function Button
-
-1. Al menú lateral, expandeix: **Function → Function Buttons**.
-2. Clica **+ Add** (o botó "New").
-3. Ompliu el formulari general:
+1. Obre B1UP Configurator: menú **Boyum IT → B1 Usability Package → Configurator**.
+2. **Función → Función Universal → Añadir**.
+3. Omple:
 
 | Camp | Valor |
 |---|---|
-| **Name** | `CalcularEmbalatges` |
-| **Description** | Botó que calcula i afegeix línies palet a la comanda |
-| **Category** | (opcional, ex: `Embalatges`) |
+| **Código** | `UF-038` (o l'autoassignat) |
+| **Nombre** | `HTTP Motor Embalatges` |
+| **Clase** | **`Código dinámico (.NET SDK)`** |
 
-## Pas 3 — Configurar la ubicació del botó
+4. Al camp gran de codi, **enganxa el contingut de `docs/b1up_uf038_calcular_embalatges.cs`** (versionat al repo).
+5. **Actualizar**.
 
-A la pestanya **Form** / **Positioning**:
+### Punts clau del codi
+
+- Usa els paràmetres **`application`** i **`form`** (locals a la signatura
+  `DynamicCode`). **NO** usa `SBO_Application` (no existeix a B1UP).
+- Obté DocEntry via `form.DataSources.DBDataSources.Item("ORDR").GetValue("DocEntry", 0)`.
+- Refresca amb `application.ActivateMenuItem("1304")` amb la precondició
+  `form.Mode == fm_OK_MODE`. Si el form té canvis pendents, mostra
+  missatge demanant desar primer.
+
+Detall complet dels gotchas: `tasks/lessons.md` L5.
+
+## Pas 2 — Vincular la UF a un botó del form 139
+
+1. B1UP Configurator: **Function → Function Buttons**.
+2. **Filtra per Form Type = 139** (Sales Order).
+3. **Obre la FB existent** per aquest form (a l'entorn actual és `FB-004`).
+   ⚠️ No creïs una FB nova — B1UP configura els botons **per grup**
+   dins la FB del form (veure `tasks/lessons.md` L3).
+4. **Afegeix una línia nova** a la graella "Botones":
 
 | Camp | Valor |
 |---|---|
-| **Form Type** | `139` (Sales Order) |
-| **Position** | `Toolbar` (o `Buttons area at the bottom`, segons preferència) |
-| **Caption on button** | `Calcular embalatges` |
-| **Icon** | Opcional (ex: calculadora) |
+| **Activo** | ✅ |
+| **Título** | `Calcular embalatges` |
+| **Función** | `Función universal` |
+| **Función universal** | `UF-038` |
+| **OK** | ✅ (fa el botó visible en mode View) |
 
-**Visibility Rules** (recomanat):
-- Mostrar només quan la comanda està **desada** (té `DocEntry`).
-  Regla: `Form.Mode = View` OR `Form.Mode = Update` (no `Add`).
-- Amagar quan la comanda està **tancada** (`DocStatus = 'C'`).
-  Regla: `$[ORDR.DocStatus] = 'O'`.
+5. **Actualizar** per desar.
 
-## Pas 4 — Configurar l'acció HTTP
+## Pas 3 — Provar
 
-A la pestanya **Actions**, afegeix una acció de tipus **HTTP Request**
-(o **Rest Client**, segons versió B1UP):
+1. Obre una comanda de venda existent al Fat Client (ex: `26600128`).
+2. Ha d'aparèixer el botó **"Calcular embalatges"** al toolbar del form.
+3. Clica'l.
+4. Espera 2-5s. Al StatusBar (peu del SAP) surt:
+   `Embalatges recalculats i comanda actualitzada.`
+5. Les línies palet apareixen automàticament a la graella del formulari.
 
-| Camp | Valor |
-|---|---|
-| **Method** | `POST` |
-| **URL** | `http://<HOST-APP>:5002/api/afegir-palets/$[$8.1.0]` |
-| **Content-Type** | `application/json` |
-| **Body** | (buit, no cal payload) |
-| **Timeout (ms)** | `30000` |
-| **Wait for response** | Yes |
-
-**Explicació del placeholder `$[$8.1.0]`**:
-- `$8` = camp DocEntry (a form 139).
-- `.1.0` = índex/fila (0 = capçalera).
-- És la sintaxi estàndard B1UP per referenciar valors del formulari actiu.
-
-**Substitueix `<HOST-APP>`** pel nom del host o IP on corre Flask
-(ex: `comandes.agrienergia.local` o `192.168.11.240`).
-
-## Pas 5 — Manegar la resposta
-
-Configura què fer segons el resultat HTTP:
-
-### Si èxit (HTTP 200 amb `ok: true`)
-
-1. **Show Message Box** (accio B1UP):
-   ```
-   Afegides ${response.linies_afegides} línies palet
-   (esborrades ${response.linies_esborrades} velles).
-   Total: ${response.resum.total_palets} palets · ${response.resum.total_sacs} sacs.
-   ```
-2. **Refresh Form** (acció B1UP `Menu → View → Refresh` o `Ctrl+W`).
-   Necessari perquè el formulari mostri les línies noves.
-
-### Si error (HTTP 4xx o 5xx, o `ok: false`)
-
-1. **Show Message Box** amb el text del camp `error` de la resposta.
-   Ex: `Error: ${response.error}`.
-2. **No refresh** — el formulari es queda com estava.
-
-## Pas 6 — Testar
-
-1. Guarda la configuració B1UP.
-2. Obre una comanda de venda existent al Fat Client
-   (ex: `26600126` o qualsevol amb DocStatus='O').
-3. Ha d'aparèixer el botó **"Calcular embalatges"** al toolbar.
-4. Clica el botó.
-5. Espera 2-5 segons.
-6. Missatge d'èxit + les línies palet apareixen a la graella.
-
-## Pas 7 — Exportar la configuració
+## Pas 4 — Exportar la configuració
 
 Un cop verificat que funciona:
 
-1. Menú B1UP: **File → Export Configuration Package**.
+1. B1UP Configurator: **File → Export Configuration Package**.
 2. Guarda el fitxer com `docs/b1up_function_button_calcular_embalatges.b1up`
    dins el repo Git.
-3. Aquest fitxer permet reimportar la mateixa configuració a un altre
-   entorn (test/prod) sense refer-la manualment.
+3. Permet reimportar la mateixa configuració a un altre entorn (prod)
+   sense refer-la manualment.
 
 ## Diagnòstic
 
-### El botó no apareix
+### El botó no apareix al form
 
-- Verifica **Form Type = 139**.
-- Verifica les Visibility Rules (potser són massa restrictives).
-- Comprova que B1UP està enabled per l'usuari actual.
+- Verifica que la línia està a la FB del form correcte (Form Type = 139).
+- Verifica **Activo** ✅ i almenys una de **Añadir/Buscar/OK** marcada.
+- Reinicia SAP Fat Client (B1UP cachea la config).
 
-### El botó apareix però no fa res
+### "El nombre 'SBO_Application' no existe"
 
-- Verifica que la URL és accessible des del servidor SAP:
-  `curl -X POST http://<HOST-APP>:5002/api/afegir-palets/126`.
-- Comprova firewall entre servidor SAP i host de l'app.
+Codi antic copiat d'un tutorial. Usar **`application`** en lloc de
+`SBO_Application`. Similar per `form`.
 
-### HTTP 500 amb error de Service Layer
+### "Cannot activate a disabled menu item [66000-75]"
 
-- Verifica que Service Layer respon: `curl -k https://<sap-server>:50000/b1s/v1/`.
-- Si torna a passar el bloqueig `-1116`, reinicia els 4 serveis SL
-  (veure `tasks/lessons.md` L1).
+`ActivateMenuItem("1304")` cridat quan el form té canvis pendents. El
+codi al repo ja té la precondició `form.Mode == fm_OK_MODE`; si l'usuari
+prem el botó amb la comanda a mig editar, veurà un missatge demanant
+desar-la primer.
 
-### HTTP 400 "no calculable"
+### "General Failure" / errors HTTP
 
-- La comanda té només articles `GRA`/`UNI`, o està sota el mínim.
-- Comportament esperat: no s'afegeix res, l'operari veu el motiu.
+- Verifica que Flask corre: `curl.exe -s http://localhost:5002/api/admin/sync-status`.
+- Si torna a passar el bloqueig SL `-1116`, reinicia els 4 serveis SL
+  (`tasks/lessons.md` L1).
 
-### Línies velles no s'esborren
+### La comanda diu "no processable" (NO_CALCULABLE)
 
-- Verifica que el UDF `RDR1.U_FCAfegit` existeix (veure guia relacionada).
-- Verifica que les línies velles tenen realment `U_FCAfegit='S'`
-  (query `SELECT LineNum, U_FCAfegit FROM RDR1 WHERE DocEntry=126`).
+- Només articles `GRA`/`UNI`, o falta configuració a l'article a SAP.
+- Comportament esperat: no s'afegeix res, l'operari veu el motiu al popup.
+
+### SOTA_MINIM — sí calcula i afegeix
+
+Tot i estar sota mínim, el motor calcula la proposta d'embalatges (mateix
+comportament que Kais) i les línies s'afegeixen. El popup mostra el
+missatge de RF2 STOP com a informació.
+
+### Les línies palet velles queden en gris
+
+Comportament esperat: el nostre patró in-place recicla línies del mateix
+`ItemCode` (0 residus grisos). Si un canvi de regla fa que un tipus de
+palet desaparegui, la línia vella no es pot esborrar (limitació SL,
+`tasks/lessons.md` L2 G2.1) → queda tancada visualment en gris. No afecta
+totals ni albarà. Pot amagar-se amb **Ajustes de formulario → Ocultar
+líneas cerradas**.
 
 ---
 
-**Data creació guia**: 2026-07-28.
-**Relacionat amb**: `docs/creacio_udf_rdr1_afegit.md`, `tasks/lessons.md`.
+**Data actualització**: 2026-07-29.
+**Relacionat amb**: `docs/creacio_udf_rdr1_afegit.md`,
+`docs/b1up_uf038_calcular_embalatges.cs`, `tasks/lessons.md` (L1-L5).
