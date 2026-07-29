@@ -353,3 +353,68 @@ llança `Cannot activate a disabled menu item [66000-75]`.
   l'usuari amb un MessageBox.
 - El codi final està al repo a `docs/b1up_uf038_calcular_embalatges.cs`
   per si es perd la configuració B1UP.
+
+---
+
+## L6 — Proxies per família comercial fan falsos positius: usar sempre llistes explícites
+
+**Data**: 2026-07-29.
+**Context**: L'usuari va reproduir manualment al SAP la comanda Kais
+`56/0000321` (→ SAP DocNum 26600137). Kais calculava 23 palets FUSTA
+EUROPEU 120×80; SAP en calculava **25**. Diferència de 2 palets no
+explicada per dades d'entrada aparentment idèntiques.
+
+### Diagnòstic
+
+Comparativa de traçabilitats:
+- **SAP RF8**: 4 articles sac_colagne_normal (30270, 30730, **30780,
+  30820**) → 220 sacs → palets base=3, max=30.
+- **Kais RF8**: 2 articles sac_colagne_normal (30270, 30730) → 60 sacs.
+
+A SAP els articles 30780 i 30820 anaven a **palets petits** (base=3, max=30);
+a Kais anaven a palets grans (base=5, max=45). Resultat: 2 palets extra a SAP.
+
+### Causa arrel
+
+El proxy que fèiem servir a `consultes.py` era:
+```python
+sac_colagne_normal = (fam_cial_cat == 'MOULIN DE COLAGNE')
+```
+Aquest proxy marcava **40 articles** com colagne (tota la família comercial),
+però a Kais només **11 articles** concrets tenen la propietat activada via
+`INF_ARTICULO.INF_TITULO='PRODUCTE_E_7G6115Z5T'` amb `INF_VALOR='SI'`.
+
+Resultat: **29 falsos positius** (articles amb família "MOULIN DE COLAGNE"
+que a Kais no compleixen la condició real per l'RF8).
+
+### Fix
+
+`OITM.QryGroup4='Y'` ja contenia exactament els 11 articles autoritatius
+(coincidència 100% amb Kais). Cap migració de dades necessària. Canvi:
+
+```python
+# Abans: sac_colagne_normal=(fam == _FAM_COLAGNE.upper())
+# Ara:   sac_colagne_normal=(r.sac_colagne_flag == 'Y')  # OITM.QryGroup4
+```
+
+Commit `12ee0d4`.
+
+### Regla per al futur
+
+**Evitar proxies per família/grup comercial per determinar propietats de
+regles**. Les regles del motor demanden llistes explícites (una propietat
+per article, no per grup). Si es proposa un proxy per "aproximar" un camp
+que no s'ha migrat, **verifica sempre la coincidència exacta amb la llista
+Kais autoritativa** abans d'usar-lo — no assumir que "sona equivalent".
+
+Comprovació ràpida per verificar aquest tipus de proxy:
+1. Extreure la llista real de Kais per la propietat (`SELECT art_codi FROM
+   INF_ARTICULO WHERE INF_TITULO=<tit_dinamic> AND INF_VALOR='SI'`).
+2. Extreure la llista SAP del proxy (`SELECT ItemCode FROM OITM WHERE
+   <condicio_proxy>`).
+3. `set(kais) ^ set(sap)` ha de ser buit; si no, hi ha falsos positius/negatius.
+
+Si el proxy no coincideix exactament, cal:
+- Buscar un altre camp/UDF que sí coincideixi (com QryGroup4 al nostre cas).
+- O crear un UDF/UDT explícit i migrar la llista de Kais.
+- NO mantenir el proxy imprecís.
