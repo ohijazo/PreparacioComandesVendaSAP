@@ -1,23 +1,29 @@
 #!/bin/bash
 # ==============================================================
-# Script de desplegament - Preparació Comandes Venda
+# Script de desplegament - Preparació Comandes Venda **variant SAP**
 # ==============================================================
 # Ús:   sudo bash deploy.sh [--first-install]
 #
 #   --first-install   Primera instal·lació (clona repo, crea venv, servei systemd)
 #   (sense arguments)  Actualitza a l'última versió de GitHub
+#
+# NOTA: aquesta és la variant SAP (port 5002). NO tocar Kais (port 5001,
+# `/var/www/comandes-venda`, servei `comandes-venda.service`).
+# Els mòduls compartits (models/regles/mailer) es resolen via KAIS_APP_PATH
+# al `.env` — apuntar a `/var/www/comandes-venda`.
 # ==============================================================
 
 set -e
 
 # ---- Configuració ----
-REPO_URL="https://github.com/ohijazo/PreparacioComandesVenda.git"
-APP_DIR="/opt/PreparacioComandesVenda"
-SERVICE_NAME="preparacio-comandes"
+REPO_URL="https://github.com/ohijazo/PreparacioComandesVendaSAP.git"
+APP_DIR="/var/www/comandes-venda-sap"
+SERVICE_NAME="comandes-venda-sap"
 PYTHON_BIN="python3"
 VENV_DIR="$APP_DIR/venv"
-APP_PORT=5001
+APP_PORT=5002
 APP_USER="www-data"
+KAIS_PATH="/var/www/comandes-venda"
 
 # Colors
 GREEN='\033[0;32m'
@@ -76,17 +82,25 @@ if [ "$1" == "--first-install" ]; then
     # Permisos
     chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 
+    # Verificar que Kais existeix (per resoldre imports compartits)
+    if [ ! -d "$KAIS_PATH" ]; then
+        warn "Kais no trobat a $KAIS_PATH. Els mòduls compartits (models/regles/mailer) fallaran."
+        warn "Si Kais és en un altre path, edita KAIS_APP_PATH al .env manualment."
+    fi
+
     # Crear servei systemd
     info "Creant servei systemd..."
     cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
 [Unit]
-Description=Motor Preparació Comandes Venda
+Description=Motor Preparació Comandes Venda (variant SAP)
 After=network.target
 
 [Service]
 Type=simple
 User=$APP_USER
 WorkingDirectory=$APP_DIR
+Environment=KAIS_APP_PATH=$KAIS_PATH
+Environment=PORT=$APP_PORT
 EnvironmentFile=$APP_DIR/.env
 ExecStart=$VENV_DIR/bin/python app.py
 Restart=always
@@ -98,12 +112,21 @@ UNIT
 
     systemctl daemon-reload
     systemctl enable "$SERVICE_NAME"
-    systemctl start "$SERVICE_NAME"
 
-    info "=== Instal·lació completada ==="
-    info "Aplicació disponible a http://$(hostname -I | awk '{print $1}'):${APP_PORT}"
-    info "Gestionar servei: sudo systemctl {start|stop|restart|status} $SERVICE_NAME"
-    info "Veure logs: sudo journalctl -u $SERVICE_NAME -f"
+    # NO arrenquem automàticament: cal .env preparat primer.
+    info ""
+    info "=== Instal·lació estructural completada ==="
+    warn "IMPORTANT: encara falta el fitxer .env amb credencials SAP."
+    info "1) Copia el .env de dev a: $APP_DIR/.env"
+    info "   (SCP: scp .env $APP_USER@\$(hostname):$APP_DIR/.env)"
+    info "2) Assegura permisos: sudo chown $APP_USER:$APP_USER $APP_DIR/.env && sudo chmod 600 $APP_DIR/.env"
+    info "3) Arrenca el servei: sudo systemctl start $SERVICE_NAME"
+    info "4) Verifica: sudo systemctl status $SERVICE_NAME"
+    info "5) Prova endpoint: curl -X POST http://localhost:$APP_PORT/api/afegir-palets/<DocEntry>"
+    info ""
+    info "Comandes útils:"
+    info "  systemctl {start|stop|restart|status} $SERVICE_NAME"
+    info "  journalctl -u $SERVICE_NAME -f"
     exit 0
 fi
 
