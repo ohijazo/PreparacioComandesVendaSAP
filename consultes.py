@@ -36,10 +36,11 @@ Direccions client (CRD1):
 - U_SEIPEDIDOM → sacs_comanda_minima
 - U_SEIPREVAL → preval_direccio ('S'=Sí, 'N'=No)
 
-Concepte `sac_colagne_normal` — derivat de la família comercial:
-- OITM.U_SEIFamCialCat = 'MOULIN DE COLAGNE' → sac_colagne_normal=True.
-  Font actualment usada; QryGroup4 (Sac Colagne Especial) també conté els 11
-  articles autoritatius de Kais però el motor manté el proxy per compatibilitat.
+Concepte `sac_colagne_normal` — llista explícita d'articles autoritatius:
+- OITM.QryGroup4 = 'Y' → sac_colagne_normal=True (11 articles).
+  Coincidència 100% amb la llista Kais (INF_ARTICULO amb INF_TITULO='PRODUCTE_E_7G6115Z5T'
+  i INF_VALOR='SI'). El proxy antic per família comercial ('MOULIN DE COLAGNE')
+  produïa 29 falsos positius i causava palets extra al motor (fix 2026-07-29, L6).
 
 Regles del motor a SAP (estat 2026-07-27):
 - ✅ RF1, RF2, RF5-RF14: totes actives amb dades reals.
@@ -453,9 +454,9 @@ _LINIES_SELECT = """
         i.SWeight1 AS pes,
         i.U_SEIUnitatsApilables AS cantidadapilable,
         RTRIM(i.U_SEIPaletProd) AS palet_producte_estoc_raw,
-        RTRIM(i.U_SEIFamCialCat) AS fam_cial_cat,
         i.QryGroup2 AS dimensio_especial_flag,
         i.QryGroup3 AS sac_25_especial_flag,
+        i.QryGroup4 AS sac_colagne_flag,
         RTRIM(l.WhsCode) AS magatzem,
         h.Series AS series, h.DocNum AS docnum
     FROM ORDR h WITH (NOLOCK)
@@ -463,17 +464,12 @@ _LINIES_SELECT = """
     INNER JOIN OITM i WITH (NOLOCK) ON i.ItemCode = l.ItemCode
 """
 
-# Família comercial → flag `sac_colagne_normal`
-_FAM_COLAGNE = "MOULIN DE COLAGNE"
-
-
 def _row_to_linia(r) -> Linia:
     tunitat = r.tunitat or ""
     unidades = float(r.linea_unidades or 0)
     pes_sac = _pes_per_tunitat(tunitat, float(r.sal_pack_un) if r.sal_pack_un else None)
     linea_cantidad = unidades * pes_sac
     palet_estoc = _palet_estoc_val(r.palet_producte_estoc_raw)
-    fam = (r.fam_cial_cat or "").strip().upper()
     return Linia(
         linea_num=int(r.linea_num) if r.linea_num is not None else 0,
         art_codi=(r.art_codi or "").strip(),
@@ -495,8 +491,12 @@ def _row_to_linia(r) -> Linia:
         dimensio_especial=(r.dimensio_especial_flag == 'Y'),
         # RF6 sac_25_especial: OITM.QryGroup3 (13 articles migrats des de Kais).
         sac_25_especial=(r.sac_25_especial_flag == 'Y'),
-        # `sac_colagne_normal` derivat de la família comercial fins que hi hagi UDF explícit.
-        sac_colagne_normal=(fam == _FAM_COLAGNE.upper()),
+        # RF8 sac_colagne_normal: OITM.QryGroup4 (11 articles autoritatius,
+        # coincidència 100% amb la llista Kais INF_ARTICULO.INF_TITULO=
+        # 'PRODUCTE_E_7G6115Z5T' amb INF_VALOR='SI'). Descarrega antic proxy
+        # per família comercial ('MOULIN DE COLAGNE') que produïa 29 falsos
+        # positius i causava palets extra al motor (documentat a L6).
+        sac_colagne_normal=(r.sac_colagne_flag == 'Y'),
         aprovisionament_estoc=palet_estoc is not None,
         palet_producte_estoc=palet_estoc,
         magatzem=(r.magatzem or "").strip() or None,
