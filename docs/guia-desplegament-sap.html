@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <title>Guia de Desplegament - Motor de Preparació de Comandes de Venda (variant SAP)</title>
+    <style>
+        @page { size: A4; margin: 2cm; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #1a202c; max-width: 800px; margin: 0 auto; padding: 2rem; }
+        h1 { color: #2b6cb0; font-size: 20pt; border-bottom: 3px solid #2b6cb0; padding-bottom: 0.5rem; }
+        h2 { color: #2c5282; font-size: 14pt; margin-top: 2rem; border-bottom: 1px solid #bee3f8; padding-bottom: 0.3rem; page-break-after: avoid; }
+        h3 { color: #2d3748; font-size: 12pt; margin-top: 1.5rem; page-break-after: avoid; }
+        code { font-family: 'JetBrains Mono', 'Consolas', monospace; background: #edf2f7; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 10pt; }
+        pre { background: #1a202c; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 9.5pt; line-height: 1.5; }
+        pre code { background: none; color: inherit; padding: 0; }
+        table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 10pt; }
+        th, td { border: 1px solid #cbd5e0; padding: 0.5rem 0.75rem; text-align: left; }
+        th { background: #edf2f7; font-weight: 600; }
+        .info { background: #ebf8ff; border-left: 4px solid #3182ce; padding: 0.6rem 1rem; margin: 0.75rem 0; border-radius: 0 4px 4px 0; font-size: 10pt; }
+        .warning { background: #fffbeb; border-left: 4px solid #d69e2e; padding: 0.6rem 1rem; margin: 0.75rem 0; border-radius: 0 4px 4px 0; font-size: 10pt; }
+        .danger { background: #fff5f5; border-left: 4px solid #e53e3e; padding: 0.6rem 1rem; margin: 0.75rem 0; border-radius: 0 4px 4px 0; font-size: 10pt; }
+        .success { background: #f0fff4; border-left: 4px solid #38a169; padding: 0.6rem 1rem; margin: 0.75rem 0; border-radius: 0 4px 4px 0; font-size: 10pt; }
+        .header-meta { color: #718096; font-size: 10pt; margin-bottom: 2rem; }
+        .toc { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+        .toc ol { padding-left: 1.25rem; }
+        .toc a { color: #2b6cb0; text-decoration: none; }
+        ul, ol { padding-left: 1.5rem; }
+        li { margin-bottom: 0.3rem; }
+        .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; color: #a0aec0; font-size: 9pt; text-align: center; }
+    </style>
+</head>
+<body>
+
+<h1>Guia de Desplegament — Producció</h1>
+<p style="font-size: 14pt; color: #4a5568; margin-top: -0.5rem;">Motor de Preparació de Comandes de Venda — <strong>variant SAP</strong></p>
+<div class="header-meta">
+    Versió 1 — Juliol 2026<br>
+    Plataforma objectiu: Ubuntu Server (servidor <code>ae01farwebsrv</code>, ja operatiu amb l'app Kais)<br>
+    Aplicació web Python/Flask amb connexió a SQL Server (SAP B1) + Service Layer REST
+</div>
+
+<div class="success">
+    <strong>Punt de partida:</strong> L'aplicació SAP ja està desplegada de forma <strong>experimental</strong> al servidor <code>ae01farwebsrv</code> amb el servidor de desenvolupament de Flask (port 5002, servei <code>comandes-venda-sap.service</code>). Aquesta guia descriu els passos addicionals per portar-la a <strong>producció</strong>: substituir el dev server per Gunicorn + Apache com a proxy invers (mateix pattern que l'app Kais al mateix host).
+</div>
+
+<div class="toc">
+    <strong>Contingut</strong>
+    <ol>
+        <li><a href="#context">Context i estat inicial</a></li>
+        <li><a href="#arquitectura">Arquitectura de producció</a></li>
+        <li><a href="#gunicorn">Substituir dev server per Gunicorn</a></li>
+        <li><a href="#apache">Apache VirtualHost (proxy invers)</a></li>
+        <li><a href="#dns">DNS i tallafocs</a></li>
+        <li><a href="#https">HTTPS (opcional, recomanat)</a></li>
+        <li><a href="#b1up">Actualitzar el botó B1UP a la nova URL</a></li>
+        <li><a href="#verificacio">Llista de verificació</a></li>
+        <li><a href="#manteniment">Manteniment i actualitzacions</a></li>
+        <li><a href="#logs">Logs i monitoratge</a></li>
+        <li><a href="#troubleshooting">Resolució de problemes</a></li>
+        <li><a href="#resum">Resum i temps estimats</a></li>
+    </ol>
+</div>
+
+<!-- 1. CONTEXT -->
+<h2 id="context">1. Context i estat inicial</h2>
+
+<h3>Estat actual al servidor</h3>
+<p>El servidor <code>ae01farwebsrv</code> (192.168.11.244) ja allotja l'app Kais en producció (port 5001, <code>/var/www/comandes-venda</code>) i la variant SAP en <strong>mode experimental</strong> (port 5002, <code>/var/www/comandes-venda-sap</code>). La variant SAP corre actualment amb el <strong>servidor de desenvolupament de Flask</strong>, que no és apte per producció.</p>
+
+<table>
+    <tr><th>Aspecte</th><th>Kais (producció)</th><th>SAP (experimental → producció)</th></tr>
+    <tr><td>Directori</td><td><code>/var/www/comandes-venda</code></td><td><code>/var/www/comandes-venda-sap</code></td></tr>
+    <tr><td>Servei systemd</td><td><code>comandes-venda.service</code></td><td><code>comandes-venda-sap.service</code></td></tr>
+    <tr><td>Port intern</td><td>5001</td><td>5002</td></tr>
+    <tr><td>Servidor web actual</td><td>Gunicorn + Apache proxy</td><td><strong>Flask dev server (a canviar)</strong></td></tr>
+    <tr><td>Base de dades</td><td>SQL Server <code>vkais</code></td><td>SQL Server <code>AE01SAPSQL</code> (SAP B1) + Service Layer REST</td></tr>
+    <tr><td>Usuari</td><td><code>www-data</code></td><td><code>www-data</code></td></tr>
+    <tr><td>Repo GitHub</td><td><code>ohijazo/PreparacioComandesVenda</code></td><td><code>ohijazo/PreparacioComandesVendaSAP</code></td></tr>
+</table>
+
+<h3>Punt de consumidor</h3>
+<p>L'endpoint principal de l'aplicació SAP és <code>POST /api/afegir-palets/&lt;DocEntry&gt;</code>. El botó <strong>"Calcular embalatges"</strong> del formulari Sales Order de SAP (configurat via B1UP a la Function Button FB-004, línia "Calcular embalatges" → UF-038 amb Codi Dinàmic .NET) fa la crida HTTP a aquest endpoint.</p>
+
+<div class="info">
+    <strong>Coexistència amb Kais:</strong> Les dues apps són independents. Kais llegeix la BD del sistema antic; SAP llegeix i escriu a SAP Business One via Service Layer. <strong>La migració a producció de SAP no ha d'afectar Kais en cap moment</strong> — segons acord operatiu, Kais ha de seguir funcionant fins novembre 2026.
+</div>
+
+<!-- 2. ARQUITECTURA -->
+<h2 id="arquitectura">2. Arquitectura de producció</h2>
+
+<pre><code>Client B1UP (SAP Fat Client)
+        │
+        │  HTTP POST /api/afegir-palets/&lt;DocEntry&gt;
+        ▼
+Apache (port 80, servidor Linux ae01farwebsrv)
+        │
+        │  Proxy pass a 127.0.0.1:5002
+        ▼
+Gunicorn (port 5002, workers Python)
+        │
+        │  Executa RF1-RF14, valida, genera línies palet
+        ▼
+    ┌──────────────────────┬────────────────────────┐
+    │                      │                        │
+SQL Server SAP B1        Service Layer SAP B1
+AE01SAPSQL.Agrienergia    https://192.168.11.238:50000
+DB_FARINERA_TEST          /b1s/v1
+(lectura, ORDR/RDR1)      (escriptura línies palet via PATCH)</code></pre>
+
+<div class="info">
+    <strong>Diferència principal amb Kais:</strong> l'app SAP <strong>escriu</strong> a la BD (afegeix línies palet a la comanda) via el Service Layer REST, no directament al SQL Server. La connexió SQL Server és només de lectura (<code>ApplicationIntent=ReadOnly</code>).
+</div>
+
+<!-- 3. GUNICORN -->
+<h2 id="gunicorn">3. Substituir dev server per Gunicorn</h2>
+
+<h3>3.1 Instal·lar Gunicorn al venv de SAP</h3>
+<pre><code>cd /var/www/comandes-venda-sap
+sudo -u www-data venv/bin/pip install gunicorn</code></pre>
+
+<h3>3.2 Aturar el servei actual (dev server)</h3>
+<pre><code>sudo systemctl stop comandes-venda-sap</code></pre>
+
+<h3>3.3 Modificar el servei systemd</h3>
+<p>Substituir la línia <code>ExecStart</code> del fitxer del servei per la crida a Gunicorn:</p>
+
+<pre><code>sudo nano /etc/systemd/system/comandes-venda-sap.service</code></pre>
+
+<p>Contingut resultant:</p>
+
+<pre><code>[Unit]
+Description=Motor Preparació Comandes Venda (variant SAP)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/comandes-venda-sap
+Environment=KAIS_APP_PATH=/var/www/comandes-venda
+Environment=PORT=5002
+EnvironmentFile=/var/www/comandes-venda-sap/.env
+ExecStart=/var/www/comandes-venda-sap/venv/bin/gunicorn \
+    --bind 127.0.0.1:5002 \
+    --workers 2 \
+    --timeout 120 \
+    --access-logfile /var/www/comandes-venda-sap/access.log \
+    --error-logfile /var/www/comandes-venda-sap/error.log \
+    app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+<div class="info">
+    <strong>Nota:</strong> Gunicorn escoltarà a <code>127.0.0.1:5002</code> (només localhost). L'accés extern es fa a través d'Apache, mai directament a Gunicorn. Aquest patró és idèntic al de Kais.
+</div>
+
+<h3>3.4 Recarregar systemd i reiniciar</h3>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl restart comandes-venda-sap
+sudo systemctl status comandes-venda-sap</code></pre>
+
+<h3>3.5 Verificar Gunicorn</h3>
+<pre><code># Ha de tornar JSON amb "ok":true si la comanda existeix
+curl -X POST -s http://127.0.0.1:5002/api/afegir-palets/128</code></pre>
+
+<!-- 4. APACHE -->
+<h2 id="apache">4. Apache VirtualHost (proxy invers)</h2>
+
+<div class="info">
+    Els mòduls d'Apache <code>proxy</code>, <code>proxy_http</code> i <code>rewrite</code> ja estaran activats (necessaris per Kais). Només cal afegir el VirtualHost nou.
+</div>
+
+<h3>4.1 Crear el VirtualHost</h3>
+<pre><code>sudo nano /etc/apache2/sites-available/comandes-venda-sap.conf</code></pre>
+
+<p>Contingut:</p>
+
+<pre><code>&lt;VirtualHost *:80&gt;
+    ServerName comandes-sap.agrienergia.local
+
+    # Permetre barres codificades a les URLs (patró consistent amb Kais)
+    AllowEncodedSlashes NoDecode
+
+    ProxyPreserveHost On
+    ProxyPass / http://127.0.0.1:5002/ nocanon
+    ProxyPassReverse / http://127.0.0.1:5002/
+
+    # Servir fitxers estàtics directament (si l'app en té)
+    Alias /static/ /var/www/comandes-venda-sap/static/
+    &lt;Directory /var/www/comandes-venda-sap/static/&gt;
+        Require all granted
+        Options -Indexes
+    &lt;/Directory&gt;
+
+    ErrorLog ${APACHE_LOG_DIR}/comandes-venda-sap-error.log
+    CustomLog ${APACHE_LOG_DIR}/comandes-venda-sap-access.log combined
+&lt;/VirtualHost&gt;</code></pre>
+
+<h3>4.2 Activar el site i verificar</h3>
+<pre><code>sudo a2ensite comandes-venda-sap.conf
+sudo apachectl configtest
+sudo systemctl reload apache2</code></pre>
+
+<h3>4.3 Verificar a través d'Apache</h3>
+<pre><code># Des del propi servidor
+curl -X POST -s -H "Host: comandes-sap.agrienergia.local" \
+    http://127.0.0.1/api/afegir-palets/128</code></pre>
+
+<!-- 5. DNS + FIREWALL -->
+<h2 id="dns">5. DNS i tallafocs</h2>
+
+<h3>5.1 Entrada DNS</h3>
+<p>Afegir una entrada DNS per <code>comandes-sap.agrienergia.local</code> al servidor DNS corporatiu, apuntant a la IP del servidor:</p>
+
+<pre><code>comandes-sap.agrienergia.local    IN  A    192.168.11.244</code></pre>
+
+<div class="warning">
+    <strong>Alternativa temporal:</strong> Si no es pot modificar el DNS corporatiu, afegir al fitxer <code>/etc/hosts</code> (Linux) o <code>C:\Windows\System32\drivers\etc\hosts</code> (Windows) de cada client SAP Fat Client:
+    <pre><code>192.168.11.244  comandes-sap.agrienergia.local</code></pre>
+</div>
+
+<h3>5.2 Tallafocs Ubuntu (UFW)</h3>
+<pre><code># Verificar estat (probablement ja Apache està obert per Kais)
+sudo ufw status
+
+# Si cal, obrir Apache (port 80)
+sudo ufw allow 'Apache'
+
+# NO cal obrir el port 5002 externament — Apache fa proxy
+# Si abans es va obrir per proves, tancar-lo:
+sudo ufw delete allow 5002/tcp</code></pre>
+
+<h3>5.3 Connectivitat cap a serveis SAP</h3>
+<p>El servidor Ubuntu ha de poder arribar a:</p>
+<table>
+    <tr><th>Destí</th><th>Port</th><th>Protocol</th><th>Ús</th></tr>
+    <tr><td><code>AE01SAPSQL.Agrienergia.local</code></td><td>1433 (o el que estigui configurat)</td><td>TCP</td><td>SQL Server SAP B1 (lectura)</td></tr>
+    <tr><td><code>192.168.11.238</code></td><td>50000</td><td>HTTPS</td><td>SAP Business One Service Layer (escriptura via REST)</td></tr>
+</table>
+
+<pre><code># Test connectivitat SQL Server
+nc -zv AE01SAPSQL.Agrienergia.local 1433
+
+# Test connectivitat Service Layer
+curl -k https://192.168.11.238:50000/b1s/v1/ -I</code></pre>
+
+<!-- 6. HTTPS -->
+<h2 id="https">6. HTTPS (opcional, recomanat)</h2>
+
+<p>Per xifrar les crides des dels clients SAP Fat Client cap al servidor Apache (recomanat si la xarxa no és de confiança total), afegir configuració SSL al VirtualHost:</p>
+
+<pre><code>sudo a2enmod ssl
+sudo nano /etc/apache2/sites-available/comandes-venda-sap-ssl.conf</code></pre>
+
+<pre><code>&lt;VirtualHost *:443&gt;
+    ServerName comandes-sap.agrienergia.local
+
+    SSLEngine on
+    SSLCertificateFile      /etc/ssl/certs/agrienergia-local.crt
+    SSLCertificateKeyFile   /etc/ssl/private/agrienergia-local.key
+
+    AllowEncodedSlashes NoDecode
+    ProxyPreserveHost On
+    ProxyPass / http://127.0.0.1:5002/ nocanon
+    ProxyPassReverse / http://127.0.0.1:5002/
+
+    ErrorLog ${APACHE_LOG_DIR}/comandes-venda-sap-ssl-error.log
+    CustomLog ${APACHE_LOG_DIR}/comandes-venda-sap-ssl-access.log combined
+&lt;/VirtualHost&gt;</code></pre>
+
+<pre><code>sudo a2ensite comandes-venda-sap-ssl.conf
+sudo ufw allow 'Apache Full'
+sudo systemctl reload apache2</code></pre>
+
+<div class="info">
+    Si es fa HTTPS, actualitzar també la URL a la UF-038 del B1UP (secció 7) de <code>http://</code> a <code>https://</code>.
+</div>
+
+<!-- 7. B1UP -->
+<h2 id="b1up">7. Actualitzar el botó B1UP a la nova URL</h2>
+
+<p>Un cop Apache serveix l'aplicació, cal actualitzar la URL al codi de la Universal Function <strong>UF-038</strong> del B1UP perquè apunti al domini nou (en lloc de <code>http://192.168.11.244:5002/</code>).</p>
+
+<h3>7.1 Obrir el codi C# de UF-038</h3>
+<ol>
+    <li>SAP Fat Client → <strong>Boyum IT → B1 Usability Package → Configurator</strong>.</li>
+    <li>Anar a <strong>Función → Función Universal</strong>.</li>
+    <li>Obrir <strong>UF-038 "HTTP Motor Embalatges"</strong>.</li>
+</ol>
+
+<h3>7.2 Canviar la URL</h3>
+<p>Buscar la línia:</p>
+<pre><code>"http://192.168.11.244:5002/api/afegir-palets/" + docEntry</code></pre>
+
+<p>i canviar-la per (segons si es fa HTTP o HTTPS):</p>
+<pre><code>// Amb HTTP simple
+"http://comandes-sap.agrienergia.local/api/afegir-palets/" + docEntry
+
+// Amb HTTPS
+"https://comandes-sap.agrienergia.local/api/afegir-palets/" + docEntry</code></pre>
+
+<h3>7.3 Actualitzar i verificar</h3>
+<ol>
+    <li>Clicar <strong>Actualizar</strong> a B1UP.</li>
+    <li>Obrir una comanda de venda al SAP Fat Client.</li>
+    <li>Clicar el botó <strong>"Calcular embalatges"</strong>.</li>
+    <li>Ha d'aparèixer el missatge d'èxit al StatusBar i les línies palet actualitzades automàticament.</li>
+</ol>
+
+<div class="info">
+    El codi C# complet està versionat al repo a <code>docs/b1up_uf038_calcular_embalatges.cs</code> per poder-lo restaurar si es perd la config B1UP.
+</div>
+
+<!-- 8. VERIFICACIÓ -->
+<h2 id="verificacio">8. Llista de verificació</h2>
+
+<table>
+    <tr><th>#</th><th>Verificació</th><th>Comanda</th><th>Resultat esperat</th></tr>
+    <tr><td>1</td><td>Servei Gunicorn actiu</td><td><code>systemctl status comandes-venda-sap</code></td><td>Active (running)</td></tr>
+    <tr><td>2</td><td>Gunicorn escolta a 5002</td><td><code>ss -tln | grep 5002</code></td><td><code>127.0.0.1:5002</code></td></tr>
+    <tr><td>3</td><td>Apache VirtualHost carregat</td><td><code>apachectl -S | grep comandes-sap</code></td><td>ServerName visible</td></tr>
+    <tr><td>4</td><td>Endpoint respon via localhost</td><td><code>curl -X POST -s http://127.0.0.1:5002/api/afegir-palets/128</code></td><td>JSON <code>"ok":true</code></td></tr>
+    <tr><td>5</td><td>Endpoint respon via Apache</td><td><code>curl -X POST -s -H "Host: comandes-sap.agrienergia.local" http://127.0.0.1/api/afegir-palets/128</code></td><td>JSON <code>"ok":true</code></td></tr>
+    <tr><td>6</td><td>DNS resol correctament</td><td><code>nslookup comandes-sap.agrienergia.local</code></td><td>192.168.11.244</td></tr>
+    <tr><td>7</td><td>Accessible des de client Windows</td><td>(des del PC) <code>curl.exe -X POST http://comandes-sap.agrienergia.local/api/afegir-palets/128</code></td><td>JSON <code>"ok":true</code></td></tr>
+    <tr><td>8</td><td>Botó B1UP funciona des de SAP</td><td>Obrir comanda de venda + clic "Calcular embalatges"</td><td>Missatge OK + línies palet visibles</td></tr>
+    <tr><td>9</td><td>Kais continua funcionant</td><td><code>systemctl status comandes-venda</code> + prova des del navegador</td><td>Sense afectacions</td></tr>
+</table>
+
+<!-- 9. MANTENIMENT -->
+<h2 id="manteniment">9. Manteniment i actualitzacions</h2>
+
+<h3>9.1 Actualitzar l'aplicació (nova versió al GitHub)</h3>
+<pre><code># El script deploy.sh gestiona el git pull, restart i verificació
+cd ~
+sudo bash /home/ohijazo/deploy.sh
+# O si el script no és al home:
+sudo bash /var/www/comandes-venda-sap/deploy.sh</code></pre>
+
+<p>L'script:</p>
+<ul>
+    <li>Fa <code>git pull</code> al directori de l'app.</li>
+    <li>Actualitza dependències Python si <code>requirements.txt</code> ha canviat.</li>
+    <li>Reinicia el servei systemd.</li>
+    <li>Verifica que el servei ha arrencat correctament.</li>
+</ul>
+
+<h3>9.2 Rollback a una versió anterior</h3>
+<pre><code>cd /var/www/comandes-venda-sap
+sudo -u www-data git log --oneline -10             # llistar commits
+sudo -u www-data git reset --hard &lt;hash-commit&gt;    # rollback
+sudo systemctl restart comandes-venda-sap</code></pre>
+
+<h3>9.3 Comandes útils del servei</h3>
+<table>
+    <tr><th>Comanda</th><th>Acció</th></tr>
+    <tr><td><code>sudo systemctl start comandes-venda-sap</code></td><td>Iniciar</td></tr>
+    <tr><td><code>sudo systemctl stop comandes-venda-sap</code></td><td>Aturar</td></tr>
+    <tr><td><code>sudo systemctl restart comandes-venda-sap</code></td><td>Reiniciar</td></tr>
+    <tr><td><code>sudo systemctl status comandes-venda-sap</code></td><td>Veure estat</td></tr>
+    <tr><td><code>sudo journalctl -u comandes-venda-sap -f</code></td><td>Logs en temps real</td></tr>
+</table>
+
+<!-- 10. LOGS -->
+<h2 id="logs">10. Logs i monitoratge</h2>
+
+<h3>Ubicació dels logs</h3>
+<table>
+    <tr><th>Font</th><th>Fitxer / comanda</th><th>Contingut</th></tr>
+    <tr><td>Gunicorn (access)</td><td><code>/var/www/comandes-venda-sap/access.log</code></td><td>Peticions HTTP rebudes per Gunicorn</td></tr>
+    <tr><td>Gunicorn (error)</td><td><code>/var/www/comandes-venda-sap/error.log</code></td><td>Errors i tracebacks de l'app</td></tr>
+    <tr><td>Apache (access)</td><td><code>/var/log/apache2/comandes-venda-sap-access.log</code></td><td>Peticions HTTP rebudes per Apache</td></tr>
+    <tr><td>Apache (error)</td><td><code>/var/log/apache2/comandes-venda-sap-error.log</code></td><td>Errors del proxy</td></tr>
+    <tr><td>Systemd</td><td><code>journalctl -u comandes-venda-sap</code></td><td>Cicle de vida del servei</td></tr>
+</table>
+
+<h3>Rotació de logs</h3>
+<p>Els logs de Gunicorn creixen indefinidament. Configurar <code>logrotate</code>:</p>
+<pre><code>sudo nano /etc/logrotate.d/comandes-venda-sap</code></pre>
+
+<pre><code>/var/www/comandes-venda-sap/access.log
+/var/www/comandes-venda-sap/error.log {
+    weekly
+    rotate 12
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 640 www-data www-data
+    sharedscripts
+    postrotate
+        systemctl reload comandes-venda-sap > /dev/null 2>&1 || true
+    endscript
+}</code></pre>
+
+<h3>Endpoint de monitoratge</h3>
+<p>L'aplicació exposa un endpoint per verificar l'estat del worker sync (si està habilitat):</p>
+<pre><code>curl -s http://127.0.0.1:5002/api/admin/sync-status</code></pre>
+
+<!-- 11. TROUBLESHOOTING -->
+<h2 id="troubleshooting">11. Resolució de problemes</h2>
+
+<h3>El servei no arrenca</h3>
+<pre><code>sudo systemctl status comandes-venda-sap
+sudo journalctl -u comandes-venda-sap -n 50 --no-pager</code></pre>
+<p>Causes freqüents:</p>
+<ul>
+    <li><strong>.env absent o mal format</strong>: verificar <code>/var/www/comandes-venda-sap/.env</code> (permisos <code>640 www-data:www-data</code>).</li>
+    <li><strong>KAIS_APP_PATH incorrecte</strong>: el servei ha de tenir <code>Environment=KAIS_APP_PATH=/var/www/comandes-venda</code>. Si Kais està en un altre path, ajustar.</li>
+    <li><strong>Port 5002 ocupat</strong>: <code>sudo ss -tlnp | grep 5002</code>.</li>
+</ul>
+
+<h3>Apache dona 502 Bad Gateway</h3>
+<p>Gunicorn no respon. Verificar:</p>
+<pre><code>sudo systemctl status comandes-venda-sap
+curl -X POST -s http://127.0.0.1:5002/api/afegir-palets/128</code></pre>
+
+<h3>L'endpoint respon 502/504 des del botó B1UP</h3>
+<p>Verificar connectivitat cap a serveis SAP:</p>
+<pre><code># SQL Server SAP
+nc -zv AE01SAPSQL.Agrienergia.local 1433
+
+# Service Layer
+curl -k -I https://192.168.11.238:50000/b1s/v1/
+
+# Test complet des del servidor
+curl -X POST -s http://127.0.0.1:5002/api/afegir-palets/&lt;DocEntry_test&gt;</code></pre>
+
+<h3>Service Layer retorna error -1116</h3>
+<p>Bloqueig conegut del backend SL (cache/procés corrupte). Solució:</p>
+<pre><code># Al servidor Windows on corre SAP B1
+Restart-Service b1s50000, b1s50001, b1s50002, B1ServerTools64ServiceLayerController -Force</code></pre>
+<p>Detalls: <code>tasks/lessons.md</code> L1 al repo.</p>
+
+<h3>El botó B1UP dona error de refresh</h3>
+<p>Verificar que la comanda estigui desada (<code>fm_OK_MODE</code>). El codi C# ja fa aquesta comprovació i mostra un missatge instructiu si no.</p>
+
+<!-- 12. RESUM -->
+<h2 id="resum">12. Resum i temps estimats</h2>
+
+<table>
+    <tr><th>Tasca</th><th>Temps estimat</th></tr>
+    <tr><td>3. Instal·lar Gunicorn i modificar servei</td><td>10 min</td></tr>
+    <tr><td>4. Configurar Apache VirtualHost</td><td>15 min</td></tr>
+    <tr><td>5. DNS i tallafocs</td><td>15 min (depenent del DNS corporatiu)</td></tr>
+    <tr><td>6. HTTPS (opcional)</td><td>15 min</td></tr>
+    <tr><td>7. Actualitzar B1UP</td><td>5 min</td></tr>
+    <tr><td>8. Verificació completa</td><td>10 min</td></tr>
+    <tr><td><strong>Total</strong></td><td><strong>~1 hora</strong> (o 1h 15m amb HTTPS)</td></tr>
+</table>
+
+<div class="success">
+    <strong>Contacte:</strong> Oscar Hijazo (<code>ohijazo@agrienergia.com</code>) — desenvolupador/mantenidor. El repo és a <code>https://github.com/ohijazo/PreparacioComandesVendaSAP</code>. Documentació tècnica addicional a <code>docs/</code> i <code>tasks/lessons.md</code> al repo.
+</div>
+
+<div class="footer">
+    Agrienergia · Motor de Preparació de Comandes de Venda (variant SAP) · Guia de Desplegament v1 · Juliol 2026
+</div>
+
+</body>
+</html>
