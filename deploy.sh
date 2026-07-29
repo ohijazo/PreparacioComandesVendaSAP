@@ -141,16 +141,21 @@ info "=== Actualitzant aplicació ==="
 
 cd "$APP_DIR"
 
+# Executem git com a l'usuari propietari (www-data) per evitar
+# "dubious ownership" que Git modern rebutja quan root toca un repo
+# que pertany a un altre usuari.
+GIT_AS_APP="sudo -u $APP_USER git"
+
 # Guardar versió actual
-OLD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "desconegut")
+OLD_COMMIT=$($GIT_AS_APP rev-parse --short HEAD 2>/dev/null || echo "desconegut")
 info "Versió actual: $OLD_COMMIT"
 
 # Descarregar canvis
 info "Descarregant última versió de GitHub..."
-git fetch origin
-git reset --hard origin/main
+$GIT_AS_APP fetch origin
+$GIT_AS_APP reset --hard origin/main
 
-NEW_COMMIT=$(git rev-parse --short HEAD)
+NEW_COMMIT=$($GIT_AS_APP rev-parse --short HEAD)
 if [ "$OLD_COMMIT" == "$NEW_COMMIT" ]; then
     info "Ja estàs a l'última versió ($NEW_COMMIT). No cal fer res."
     exit 0
@@ -159,7 +164,7 @@ fi
 info "Nova versió: $NEW_COMMIT"
 
 # Actualitzar dependències si han canviat
-if git diff "$OLD_COMMIT" "$NEW_COMMIT" -- requirements.txt | grep -q .; then
+if $GIT_AS_APP diff "$OLD_COMMIT" "$NEW_COMMIT" -- requirements.txt | grep -q .; then
     info "Actualitzant dependències Python..."
     "$VENV_DIR/bin/pip" install -r requirements.txt -q
 else
