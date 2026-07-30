@@ -5,15 +5,17 @@ Encapsula:
 - Renovació proactiva abans que expiri (25 min per defecte, marge sobre 30 min de SAP).
 - Reintent automàtic en 401 (relogin + retry 1 cop).
 - Reintent amb backoff en 5xx (3 intents totals).
-- PATCH sobre `/Orders({DocEntry})` per escriure UDFs `U_FCEmbalatge*`.
+- Sincronització idempotent de línies palet a `/Orders({DocEntry})` amb el
+  patró in-place `replace_marked_lines()`.
 
-Ús típic:
+Ús típic (des de `app.py:api_afegir_palets`):
     with SLClient(url, company, user, pwd) as sl:
-        sl.patch_order(1234, {
-            "U_FCCalcular": "N",
-            "U_FCEmbalatgeResum": "3 palets · 120 sacs · CALCULAT",
-            "U_FCEmbalatgeEstat": "CALCULAT",
-        })
+        stats = sl.replace_marked_lines(
+            doc_entry,
+            marker_field="U_FCAfegit",
+            marker_value="S",
+            new_lines=[{"ItemCode": "01030", "Quantity": 2, ...}],
+        )
 
 Configuració via `.env` (variables `SAP_SL_*`).
 """
@@ -250,8 +252,8 @@ class SLClient:
     def patch_order(self, doc_entry: int, fields: dict[str, Any]) -> None:
         """PATCH /Orders({DocEntry}) amb els camps donats.
 
-        Ús principal: escriure els UDFs `U_FCEmbalatgeResum`, `U_FCEmbalatgeEstat`
-        i posar `U_FCCalcular='N'` un cop calculat.
+        Ús: mutació genèrica de camps de capçalera d'una Order (UDFs, Comments,
+        etc.). Per sincronitzar línies palet, fer servir `replace_marked_lines()`.
 
         Service Layer respon 204 No Content en un PATCH exitós.
         """

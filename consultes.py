@@ -926,69 +926,6 @@ def obtenir_magatzems_from_comandes(conn, comandes: list[dict]) -> list[dict]:
     return sorted(result, key=lambda x: x["almacen"])
 
 
-# ============================================================
-# obtenir_comandes_a_calcular(): trigger UDF U_FCCalcular='S'
-# ============================================================
-# Cache d'existència del UDF U_FCCalcular a ORDR — perquè el pendent que
-# el consultor el creï, cada crida no repeteixi la comprovació INFORMATION_SCHEMA.
-_udf_calcular_existeix_cache: bool | None = None
-
-
-def _udf_calcular_exists(conn) -> bool:
-    """Retorna True si el UDF `ORDR.U_FCCalcular` existeix a la BD SAP.
-
-    Cachejat en memòria després de la primera comprovació (l'existència
-    d'un UDF és un canvi molt puntual d'entorn).
-    """
-    global _udf_calcular_existeix_cache
-    if _udf_calcular_existeix_cache is not None:
-        return _udf_calcular_existeix_cache
-    row = conn.execute(
-        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
-        "WHERE TABLE_NAME='ORDR' AND COLUMN_NAME='U_FCCalcular'"
-    ).fetchone()
-    _udf_calcular_existeix_cache = bool(row and row[0] > 0)
-    if not _udf_calcular_existeix_cache:
-        logger.warning(
-            "UDF ORDR.U_FCCalcular NO existeix — obtenir_comandes_a_calcular "
-            "retornarà [] fins que el consultor SAP el creï."
-        )
-    return _udf_calcular_existeix_cache
-
-
-def obtenir_comandes_a_calcular(conn) -> list[dict]:
-    """Retorna les comandes obertes marcades per l'usuari com "a calcular".
-
-    Trigger: l'usuari edita la comanda al formulari Sales Order de SAP, marca
-    `U_FCCalcular='S'` i desa. El worker de sync polleja aquesta funció
-    periòdicament, calcula, escriu el resum als altres UDFs `U_FCEmbalatge*`
-    i posa `U_FCCalcular='N'` (via Service Layer).
-
-    Retorna: lista de dicts amb `doc_entry`, `series`, `docnum`, `card_code`.
-    Si el UDF encara no existeix a SAP (consultor pendent), retorna [].
-    """
-    if not _udf_calcular_exists(conn):
-        return []
-
-    sql = """
-        SELECT h.DocEntry, h.Series, h.DocNum, RTRIM(h.CardCode) AS CardCode
-        FROM ORDR h WITH (NOLOCK)
-        WHERE h.DocStatus = 'O'
-          AND h.U_FCCalcular = 'S'
-        ORDER BY h.DocEntry
-    """
-    rows = conn.execute(sql).fetchall()
-    return [
-        {
-            "doc_entry": int(r.DocEntry),
-            "series": int(r.Series),
-            "docnum": int(r.DocNum),
-            "card_code": r.CardCode or "",
-        }
-        for r in rows
-    ]
-
-
 def obtenir_metadata_ordr_per_doc_entry(conn, doc_entry: int) -> dict:
     """Retorna metadades bàsiques d'una comanda a partir del DocEntry.
 
