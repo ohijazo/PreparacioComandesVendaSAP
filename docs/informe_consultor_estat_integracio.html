@@ -43,7 +43,7 @@
 </div>
 
 <div class="success">
-    <strong>Resum en 30 segons:</strong> El motor d'embalatges Python ja calcula i insereix les línies palet directament dins la Comanda de venda de SAP. L'operari clica un botó al form, espera 2-3 segons i les línies apareixen automàticament. Cap desenvolupament .NET SDK, cap add-on. El disseny final és <strong>més senzill que la proposta inicial</strong> — no fem servir el worker asíncron amb flag <code>U_FCCalcular</code>, sinó una crida sota demanda des d'un botó Boyum B1UP.
+    <strong>Resum en 30 segons:</strong> El motor d'embalatges Python ja calcula i insereix les línies palet directament dins la Comanda de venda de SAP. L'operari clica un botó al form, espera 2-3 segons i les línies apareixen automàticament. Cap desenvolupament .NET SDK, cap add-on. El disseny final és <strong>més senzill que la proposta inicial</strong> — no fem servir el worker asíncron amb flag a la capçalera, sinó una crida sota demanda des d'un botó Boyum B1UP.
 </div>
 
 <div class="toc">
@@ -56,10 +56,8 @@
         <li><a href="#udfs">UDFs consumits + QryGroups aprofitats</a></li>
         <li><a href="#servicelayer">Ús del Service Layer</a></li>
         <li><a href="#validacio">Validació end-to-end</a></li>
-        <li><a href="#preguntes">Preguntes per validació del consultor</a></li>
         <li><a href="#apendix-a">Apèndix A — Codi C# del botó B1UP</a></li>
         <li><a href="#apendix-b">Apèndix B — Exemples de crides REST</a></li>
-        <li><a href="#apendix-c">Apèndix C — Gotchas del Service Layer detectats</a></li>
     </ol>
 </div>
 
@@ -70,18 +68,18 @@
     <tr><th>Aspecte</th><th>Proposta 27/07</th><th>Implementació final</th></tr>
     <tr>
         <td><strong>Trigger del càlcul</strong></td>
-        <td>Marca <code>U_FCCalcular='S'</code> + desa la comanda. Un worker Python polleja cada 5-10s.</td>
+        <td>Marcador booleà a la capçalera + desar la comanda. Worker Python polleja cada 5-10s.</td>
         <td><strong>Botó explícit</strong> "Calcular embalatges" al form Comanda de venda (B1UP). Crida directa sense poll.</td>
     </tr>
     <tr>
         <td><strong>UDFs nous a SAP</strong></td>
-        <td>3 UDFs a <code>ORDR</code>: <code>U_FCCalcular</code>, <code>U_FCEmbalatgeResum</code>, <code>U_FCEmbalatgeEstat</code>.</td>
-        <td><strong>1 UDF nou</strong>: <code>RDR1.U_FCAfegit</code> (Alfa 1, valors S/N) per marcar línies palet inserides pel motor. Els 3 UDFs proposats a ORDR han quedat opcionals (no s'usen).</td>
+        <td>3 UDFs a <code>ORDR</code> (flag, resum textual, estat).</td>
+        <td><strong>1 UDF nou</strong>: <code>RDR1.U_FCAfegit</code> (Alfa 1, valors S/N) per marcar línies palet inserides pel motor. Els 3 UDFs proposats a ORDR no s'han fet servir i s'han eliminat.</td>
     </tr>
     <tr>
         <td><strong>On es veu el resultat</strong></td>
-        <td>Camp <code>U_FCEmbalatgeResum</code> a la capçalera de la comanda (text 254 caràcters).</td>
-        <td><strong>Línies físiques palet</strong> directament dins la graella de la comanda (article + quantitat, com les línies producte). Es formen part del document i van a albarà/factura si escau.</td>
+        <td>Camp resum textual a la capçalera de la comanda (254 caràcters).</td>
+        <td><strong>Línies físiques palet</strong> directament dins la graella de la comanda (article + quantitat, com les línies producte). Formen part del document i van a albarà/factura si escau.</td>
     </tr>
     <tr>
         <td><strong>Refresh visual</strong></td>
@@ -327,38 +325,13 @@ Operari veu les línies palet a la graella. Fi.</code></pre>
     </tr>
 </table>
 
-<h3>UDFs proposats a l'inicial i que NO usem</h3>
-
-<table>
-    <tr><th>UDF</th><th>Estat</th><th>Decisió</th></tr>
-    <tr>
-        <td><code>ORDR.U_FCCalcular</code> (Alfa 1)</td>
-        <td><span class="badge badge-none">No usat</span></td>
-        <td>Substituit pel botó B1UP. Pot eliminar-se o deixar-se per si en algun moment activem el worker asíncron.</td>
-    </tr>
-    <tr>
-        <td><code>ORDR.U_FCEmbalatgeResum</code> (Alfa 254)</td>
-        <td><span class="badge badge-none">No usat</span></td>
-        <td>El resum ara són les línies físiques palet a RDR1. Es pot eliminar.</td>
-    </tr>
-    <tr>
-        <td><code>ORDR.U_FCEmbalatgeEstat</code> (Alfa 30)</td>
-        <td><span class="badge badge-none">No usat</span></td>
-        <td>Idem. Es pot eliminar.</td>
-    </tr>
-</table>
-
-<div class="question">
-    <strong>Pregunta 1 per tu:</strong> aquests 3 UDFs a ORDR — vols que els deixem per si l'activem més endavant, o prefereixes que els eliminis per netedat? Nosaltres podem viure amb qualsevol de les dues opcions.
-</div>
-
 <!-- 6. SERVICE LAYER -->
 <h2 id="servicelayer">6. Ús del Service Layer</h2>
 
 <h3>Usuari SL</h3>
 
 <ul>
-    <li>Usuari: <code>OHijazo</code> (usuari dedicat que ens vas crear).</li>
+    <li>Usuari: <code>OHijazo</code>.</li>
     <li>URL: <code>https://192.168.11.238:50000/b1s/v1</code>.</li>
     <li>Companyia: <code>DB_FARINERA_TEST</code>.</li>
     <li>SSL: verify_ssl=false (cert auto-signat).</li>
@@ -406,10 +379,6 @@ Operari veu les línies palet a la graella. Fi.</code></pre>
     <strong>Limitació SAP coneguda:</strong> el Service Layer NO permet DELETE de línies individuals (retorna <code>-5006</code>). La única forma "neta" d'invalidar una línia és <code>LineStatus="bost_Close"</code>. Aquestes línies queden a RDR1 com a residual històric però NO compten a totals ni albarà. Recomanem als usuaris amagar-les del formulari amb "Ajustes de formulario → Ocultar líneas cerradas".
 </div>
 
-<div class="question">
-    <strong>Pregunta 2 per tu:</strong> ¿ens confirmes que els permisos de l'usuari <code>OHijazo</code> a Service Layer cobreixen <code>GET</code>+<code>PATCH</code> sobre <code>Orders</code>, i lectura sobre <code>OITM</code>/<code>CRD1</code>/<code>RDR1</code>/<code>ORDR</code>? Empíricament funciona; volem confirmació formal.
-</div>
-
 <!-- 7. VALIDACIÓ -->
 <h2 id="validacio">7. Validació end-to-end</h2>
 
@@ -435,25 +404,6 @@ Operari veu les línies palet a la graella. Fi.</code></pre>
 
 <div class="info">
     <strong>Lliçó extreta:</strong> els proxies per família comercial poden semblar equivalents però tenen falsos positius. Sempre validar empíricament la llista d'articles marcats vs la llista Kais autoritativa. Ara al codi tenim tests unitaris que garanteixen aquest mapping.
-</div>
-
-<!-- 8. PREGUNTES -->
-<h2 id="preguntes">8. Preguntes per validació del consultor</h2>
-
-<div class="question">
-    <strong>P1 — UDFs sense ús:</strong> <code>ORDR.U_FCCalcular</code>, <code>ORDR.U_FCEmbalatgeResum</code> i <code>ORDR.U_FCEmbalatgeEstat</code>. Els deixem o els eliminem?
-</div>
-
-<div class="question">
-    <strong>P2 — Permisos SL:</strong> ¿ens confirmes formalment que l'usuari <code>OHijazo</code> té els permisos correctes per llegir <code>Orders/OITM/CRD1</code> i escriure a <code>Orders</code> (PATCH)? Ara funciona, però volem tenir-ho documentat abans de producció.
-</div>
-
-<div class="question">
-    <strong>P3 — Patró de línies tancades:</strong> ¿veus algun risc al fet que acumulem línies palet en estat <code>bost_Close</code> per canvis d'ItemCode en re-càlculs? A la pràctica passa molt poc (el 90% dels casos són in-place, sense tancament), però volem estar segurs que no fas servir <code>LineStatus</code> per res crític de negoci que pugui afectar-nos.
-</div>
-
-<div class="question">
-    <strong>P4 — Bloqueig SL -1116:</strong> vam patir un episodi (24/07) on el SL rebutjava PATCHs amb error <code>-1116 "Could not commit transaction"</code>. Es va resoldre reiniciant els 4 serveis SL al servidor Windows. ¿Saps de què pot dependre aquest tipus de bloqueig, o si hi ha manera de mitigar-lo?
 </div>
 
 <!-- APÈNDIX A: CODI C# -->
@@ -563,55 +513,6 @@ catch (System.Exception ex)
 #   - "palets": [ {art_codi, quantitat, es_fisic, es_despaletitzat}, ... ]
 #   - "trazabilitat": [ "RF1: ...", "RF2: ...", "Palet 1: ...", ... ]
 #   - "avisos_dades": [ {camp, missatge, tipus}, ... ]</code></pre>
-
-<h3>Estat del servei (monitoratge)</h3>
-
-<pre><code>curl http://192.168.11.244:5002/api/admin/sync-status
-
-# Resposta: JSON amb última execució, comptadors, health check</code></pre>
-
-<!-- APÈNDIX C: GOTCHAS SL -->
-<h2 id="apendix-c">Apèndix C — Gotchas del Service Layer detectats</h2>
-
-<p>Vam trobar aquests comportaments no evidents del Service Layer durant la implementació. Les incloc aquí per si t'aporten context o si algun altre projecte pot tenir el mateix problema:</p>
-
-<table>
-    <tr><th>#</th><th>Comportament</th><th>Solució aplicada</th></tr>
-    <tr>
-        <td>G1</td>
-        <td><code>DELETE /Orders(N)/DocumentLines(K)</code> retorna <code>-5006 "action not supported"</code>.</td>
-        <td>No es pot esborrar línies individualment. Alternativa: <code>PATCH</code> amb <code>LineStatus="bost_Close"</code>.</td>
-    </tr>
-    <tr>
-        <td>G2</td>
-        <td><code>POST /Orders(N)/DocumentLines</code> per afegir línies retorna <code>-1008 "Command Not Found"</code>.</td>
-        <td>No hi ha subcollection endpoint. Alternativa: <code>PATCH /Orders(N)</code> amb tot el <code>DocumentLines</code> incloent placeholders.</td>
-    </tr>
-    <tr>
-        <td>G3</td>
-        <td>Un PATCH que barreja <code>LineStatus="bost_Close"</code> amb altres modificacions retorna <code>-5002 "cannot be closed concurrently"</code>.</td>
-        <td>Separar en 2 PATCH: (1) només tancament, (2) update+add. Fer-los seqüencialment.</td>
-    </tr>
-    <tr>
-        <td>G4</td>
-        <td>Enviar <code>DocumentLines</code> sense <code>LineNum</code> per línies existents provoca sobreescriptura per posició (destructiu).</td>
-        <td>Per cada línia existent (oberta o tancada) enviar placeholder <code>{LineNum: X}</code>. SAP preserva la línia. Les noves van sense <code>LineNum</code> al final.</td>
-    </tr>
-    <tr>
-        <td>G5</td>
-        <td>UDFs amb valors vàlids (S/N) no accepten string buit — retornen <code>-1004</code>.</td>
-        <td>Sempre enviar un dels valors vàlids o ometre el camp. En el nostre cas usem <code>U_FCAfegit='S'</code>.</td>
-    </tr>
-    <tr>
-        <td>G6</td>
-        <td><code>POST /Orders(N)/Update</code> retorna <code>-1029 "Field cannot be updated"</code> per UDFs.</td>
-        <td>No fer servir aquest endpoint per UDFs. Usar <code>PATCH /Orders(N)</code> directament.</td>
-    </tr>
-</table>
-
-<div class="info">
-    Aquests gotchas estan documentats en detall al fitxer <code>tasks/lessons.md</code> (L2) del repositori intern, amb el patró correcte per cada cas.
-</div>
 
 <div class="footer">
     Agrienergia — Motor de Preparació de Comandes de Venda (variant SAP) · Informe consultor v1 · 2026-07-30
