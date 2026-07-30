@@ -406,6 +406,33 @@ Operari veu les línies palet a la graella. Fi.</code></pre>
     <strong>Lliçó extreta:</strong> els proxies per família comercial poden semblar equivalents però tenen falsos positius. Sempre validar empíricament la llista d'articles marcats vs la llista Kais autoritativa. Ara al codi tenim tests unitaris que garanteixen aquest mapping.
 </div>
 
+<h3>Nota sobre "paritat 100% amb Kais"</h3>
+
+<p>Quan diem <em>paritat amb Kais</em>, ens referim a la <strong>última
+versió del codi del motor</strong> (compartit al repositori Git). El motor
+és exactament el mateix codi Python a totes dues variants (`regles.py`
+compartit); només difereix la capa de lectura de dades (`consultes.py`),
+que és el que ha calgut adaptar per llegir de SAP en lloc de Kais.</p>
+
+<div class="warning">
+    <strong>Detall operatiu:</strong> la instància productiva del motor
+    Kais que hi ha al servidor Ubuntu (`comandes.agrienergia.local`) pot
+    estar corrent una versió del codi anterior a l'actual del Git (l'app
+    Kais s'actualitza menys sovint que el codi al Git). Això vol dir que
+    puntualment, si es compara una comanda contra Kais servidor vs SAP
+    servidor, es pot veure una diferència petita d'1-2 palets per
+    optimitzacions posteriors incorporades al motor però no encara
+    desplegades al Kais servidor.
+    <br><br>
+    Exemple real detectat (30/07): la comanda test 26600144 (client
+    C291118) al motor SAP dona 4 palets (aplicant l'optimització RF4 que
+    reparteix articles apilables com 31080 SEGONET sobre palets
+    existents). El Kais servidor no té encara aquest fix (introduït al
+    Git l'abril 2026) i dona 5 palets per la mateixa comanda. Executant
+    el motor Kais amb el codi actual del Git, també dona 4 palets. No
+    és un bug de SAP; és un desalineament de versions Kais.
+</div>
+
 <!-- APÈNDIX A: CODI C# -->
 <h2 id="apendix-a">Apèndix A — Codi C# del botó B1UP</h2>
 

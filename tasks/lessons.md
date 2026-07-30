@@ -463,3 +463,71 @@ SL comencen a fallar amb errors críptics tipus `Invalid column name` o
 Ordre de diagnòstic actualitzat per errors SL post-canvi d'esquema:
 1. Recent hem tocat UDFs/UDTs? → Reiniciar SL. Fi.
 2. La resta de passos de L1 (comprovar TN, triggers, add-ons Java).
+
+---
+
+## L8 — "Paritat amb Kais": codi Git vs entorn productiu
+
+**Data**: 2026-07-30.
+**Context**: Comparació comanda `01/0005723` (Kais) vs `26600144` (SAP,
+reproduïda manualment). Kais al servidor Ubuntu (`comandes.agrienergia.local`)
+retornava **5 palets**, SAP servidor retornava **4 palets**. Aparentment
+un bug al motor SAP.
+
+### Diagnòstic
+
+Es va executar el mateix motor Kais **localment (Windows dev, git actual)**
+amb la mateixa comanda → **4 palets** (com SAP).
+
+Diferència d'entorn:
+
+| Font | Codi executat | Resultat |
+|---|---|---|
+| Kais servidor Ubuntu | Versió desplegada fa mesos (anterior 22-04-2026) | 5 palets |
+| Kais Windows dev | Codi Git actual | 4 palets |
+| SAP servidor Ubuntu | Codi Git actual (via `KAIS_APP_PATH`) | 4 palets |
+
+El fix responsable és el commit `1a84478` (2026-04-22) — "RF4: permetre
+repartir articles especials sobre múltiples palets". Reparteix articles
+amb `dimensio_especial=True` + `cantidadapilable > 0` sobre palets
+existents, estalviant palets físics.
+
+Kais al servidor està **desactualitzat**: no té aquest fix ni els següents
+(V8/V9 regles, RF11-RF14). SAP al servidor sí — el `deploy.sh` de SAP fa
+`git clone` fresc, i el motor SAP carrega `regles.py` del filesystem
+Kais servidor (via `KAIS_APP_PATH=/var/www/comandes-venda`)... però
+**executa amb l'intèrpret Python del venv SAP**, i les línies vénen de
+la BD SAP amb les dades correctes.
+
+*NOTA importantt: cal verificar per què SAP servidor dona 4 palets si
+carrega `regles.py` del Kais servidor (vell). Hipòtesi: el `regles.py`
+del servidor Kais podria ser més recent que la seva app.py — s'hi va
+sincronitzar de forma manual? O bé el bootstrap SAP fa fallback al
+`regles.py` del repo SAP si `KAIS_APP_PATH` no és accessible. Pendent
+verificar.*
+
+### Decisió operativa (Opció A)
+
+- Kais servidor: intocable fins novembre 2026 (política operativa).
+- SAP: dona el resultat correcte segons el codi actual.
+- Discrepància acceptada temporalment.
+
+Documentat a l'informe del consultor com "paritat amb el codi actual, no
+necessàriament amb l'entorn productiu Kais".
+
+### Regla per al futur
+
+**En comparatives Kais/SAP, distingir sempre**:
+- **Paritat amb el codi actual (Git)**: verificable executant el motor
+  Kais local sobre les mateixes dades → hauria de coincidir amb SAP
+  servidor.
+- **Paritat amb Kais productiu**: pot divergir si Kais servidor no
+  s'actualitza tan sovint com el Git.
+
+Si un usuari reporta discrepància Kais/SAP:
+1. **Primer executar el motor Kais localment** amb la comanda Kais →
+   compara amb SAP servidor.
+2. Si els dos locals coincideixen → Kais servidor està desactualitzat,
+   no és bug del motor.
+3. Si divergeixen local → cal investigar de veres el motor (com L6 amb
+   sac_colagne_normal).
