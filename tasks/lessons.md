@@ -418,3 +418,48 @@ Si el proxy no coincideix exactament, cal:
 - Buscar un altre camp/UDF que sí coincideixi (com QryGroup4 al nostre cas).
 - O crear un UDF/UDT explícit i migrar la llista de Kais.
 - NO mantenir el proxy imprecís.
+
+---
+
+## L7 — Eliminar un UDF a SAP requereix reiniciar el Service Layer
+
+**Data**: 2026-07-30.
+**Context**: Vam eliminar 3 UDFs de ORDR (`U_FCCalcular`, `U_FCEmbalatgeResum`,
+`U_FCEmbalatgeEstat`) que ja no fem servir (eren de la proposta inicial amb
+webclient/worker). Just després, qualsevol `PATCH /Orders(N)` via SL
+rebutjava amb `Error 400: Invalid column name 'U_FCCalcular'`.
+
+### Diagnòstic
+
+Verificàrem:
+- La BD SAP **NO** conté cap objecte (trigger/SP/vista/default/computed
+  column) que referencii `U_FCCalcular`.
+- El nostre payload PATCH tampoc l'envia.
+
+L'error venia del **cache d'esquema del Service Layer**: el SL manté a
+memòria l'estructura de columnes de cada taula (per validar payloads).
+Quan s'elimina un UDF a la BD, el SL no s'assabenta fins que es reinicia
+— la seva validació interna encara espera trobar el camp i marca error
+quan no el troba al fer la operació.
+
+### Solució
+
+Reiniciar els 4 serveis SL al servidor Windows SAP:
+
+```powershell
+"b1s50000", "b1s50001", "b1s50002", "B1ServerTools64ServiceLayerController" |
+  ForEach-Object { Restart-Service -Name $_ -Force }
+```
+
+Un cop reiniciats, els PATCH tornen a passar amb 204 al primer intent.
+
+### Regla per al futur
+
+**Qualsevol canvi d'esquema a SAP (crear/eliminar UDF, UDT, canviar tipus
+de camp) requereix reiniciar el Service Layer**, si no els PATCH/POST via
+SL comencen a fallar amb errors críptics tipus `Invalid column name` o
+`-1116 Could not commit transaction`.
+
+Ordre de diagnòstic actualitzat per errors SL post-canvi d'esquema:
+1. Recent hem tocat UDFs/UDTs? → Reiniciar SL. Fi.
+2. La resta de passos de L1 (comprovar TN, triggers, add-ons Java).

@@ -341,38 +341,25 @@ Motor de decisión logística determinista basado en SQL.
 **Objectiu**: eliminar la fricció d'obrir el navegador — l'operari veu el resum
 del càlcul directament al formulari Comanda de venda de SAP.
 
-### Disseny mínim (post-consulta al consultor)
+### Disseny final (2026-07-30 — sota demanda amb botó B1UP)
 
-**3 UDFs a la taula ORDR** (prefix `U_FC` coherent amb els UDFs existents):
+La proposta inicial preveia 3 UDFs a ORDR + worker asíncron. **Substituït per un botó B1UP** que crida el webservice directament. El disseny final és més senzill:
 
-| UDF | Tipus | Rol |
-|---|---|---|
-| `U_FCCalcular` | Alfa 1 (`S`/`N`) | Flag trigger — l'usuari el marca a `S` i desa |
-| `U_FCEmbalatgeResum` | Alfa 254 | Resum textual escrit pel worker |
-| `U_FCEmbalatgeEstat` | Alfa 30 | Estat (CALCULAT/ERROR/etc.) |
+**1 UDF nou a RDR1**: `U_FCAfegit` (Alfa 1, valors S/N) per marcar línies palet que insereix el motor (idempotència del recàlcul).
 
-**Trigger sota demanda** (no automàtic): l'operari edita comandes iterativament
-("sac a munt, sac a vall") sense pressió; quan és definitiva marca `U_FCCalcular=S`
-i desa. Un worker Python polleja cada ~10s **només** les comandes amb el flag actiu.
+**Els 3 UDFs previstos a ORDR van ser eliminats el 2026-07-30** — s'havien creat originalment per la proposta amb webclient/worker, però ja no els fem servir. Els mòduls `sync_worker.py`, `run_sync.py`, `install_sync_service.ps1` són codi mort al repo (pendent decidir si s'esborren).
 
-**Sense**: UDTs personalitzades, User Query panel, add-ons SDK.
+**Trigger sota demanda** via botó B1UP:
+- Botó "Calcular embalatges" al form Comanda de venda (Function Button FB-004 línia 3).
+- Configurat via B1UP amb Codi Dinàmic .NET (UF-038) — codi al repo a `docs/b1up_uf038_calcular_embalatges.cs`.
+- Crida `POST http://<host>:5002/api/afegir-palets/{DocEntry}` al webservice Python (Ubuntu).
 
-### Mòduls Python (tots implementats i testats)
-
-- `sap_service_layer.py` (§2.1) — `SLClient` amb login/logout/`patch_order`, gestió sessió, retries.
-- `consultes.obtenir_comandes_a_calcular` (§2.2) — retorna comandes amb `U_FCCalcular='S'`.
-- `sap_formatter.py` (§2.3) — `formatar_resum(resultat) → (text, estat)`.
-- `sync_worker.py` (§2.4) — orquestrador amb `run_one_pass()` i `run_forever()`.
-- `run_sync.py` (§2.4) — entry point CLI amb `--once`, `--dry-run`, `--interval`.
-
-### Pendents Fase 2
-
-- **§2.5** — endpoint `/api/admin/sync-status` per monitoratge.
-- **§2.6** — deployment com a servei Windows amb NSSM.
-- **Bloquejant**: creació dels 3 UDFs a SAP pel consultor + usuari Service Layer dedicat.
+**Sense**: UDTs personalitzades, User Query panel, add-ons SDK, worker asíncron.
 
 ### Documentació
 
-- Estat detallat de cada subfase: `tasks/fase2_progress.md`.
-- Proposta enviada al consultor: `docs/proposta_integracio_sap.docx` (generada per `scripts/build_proposta_sap.py`).
-- Text del mail: `docs/proposta_integracio_sap_mail.md`.
+- Estat detallat: `tasks/fase2_progress.md`.
+- Informe consultor amb l'estat final: `docs/informe_consultor_estat_integracio.html` (+ mail `docs/mail_consultor_estat_integracio.md`).
+- Proposta original: `docs/proposta_integracio_sap.docx` (històric).
+- Guia deploy Sistemes: `docs/guia-desplegament-sap.html`.
+- Guia botó B1UP: `docs/configuracio_b1up_boto_embalatge.md`.
