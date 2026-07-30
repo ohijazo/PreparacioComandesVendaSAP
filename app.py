@@ -9,7 +9,7 @@ import time
 import threading
 from flask import Flask, render_template, jsonify, request, Response
 from motor import calcular_embalatges, calcular_embalatges_agrupats, validar_dades_mestres
-from consultes import connectar, obtenir_ultimes_comandes, obtenir_comanda_per_numero, obtenir_recompte_comandes, obtenir_magatzems_from_comandes, obtenir_noms_magatzems, obtenir_titols_infoanex, obtenir_titols_infoanex_clienvio, obtenir_metadata_ordr_per_doc_entry
+from consultes import connectar, obtenir_ultimes_comandes, obtenir_comanda_per_numero, obtenir_recompte_comandes, obtenir_magatzems_from_comandes, obtenir_noms_magatzems, obtenir_titols_infoanex, obtenir_titols_infoanex_clienvio, obtenir_metadata_ordr_per_doc_entry, obtenir_preus_palets_client
 from models import Estat  # compartit via _bootstrap
 from mailer import enviar_correu_autoritzacio, LLINDAR_KG_AUTORITZACIO, obtenir_defaults_destinataris  # compartit via _bootstrap
 from sap_service_layer import SLClient, SLError
@@ -512,9 +512,12 @@ def api_afegir_palets(doc_entry: int):
     t0 = time.time()
     conn = None
     try:
-        # 1. Metadades comanda a partir del DocEntry
+        # 1. Metadades comanda + preus palet negociats del client
         conn = connectar()
         meta = obtenir_metadata_ordr_per_doc_entry(conn, doc_entry)
+        preus_palet = obtenir_preus_palets_client(
+            meta["card_code"], meta.get("addr"), conn=conn
+        )
         conn.close()
         conn = None
 
@@ -540,8 +543,10 @@ def api_afegir_palets(doc_entry: int):
         # a Kais). S'afegeixen les línies palet perquè l'operari les vegi;
         # els missatges de RF2 STOP viatgen al camp `missatges` per avís.
 
-        # 3. Generar línies palet físiques
-        linies_noves = generar_linies_palet_sap(resultat.palets, meta["whs_code"])
+        # 3. Generar línies palet físiques (amb preus del UDT SEITARIFA si n'hi ha)
+        linies_noves = generar_linies_palet_sap(
+            resultat.palets, meta["whs_code"], preus_client=preus_palet
+        )
 
         # 4. Substituir línies velles via SL (o esborrar si no n'hi ha de noves)
         with _sl_client() as sl:

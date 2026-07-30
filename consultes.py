@@ -693,6 +693,77 @@ def obtenir_palet_client(cli_codi: str, adr_codi: str | None = None, conn=None) 
 
 
 # ============================================================
+# obtenir_preus_palets_client(): preus negociats al UDT SEITARIFA
+# ============================================================
+def obtenir_preus_palets_client(
+    cli_codi: str, adr_codi: str | None = None, conn=None
+) -> dict[str, float]:
+    """Retorna els preus negociats del client per articles palet.
+
+    Consulta `@SEITARIFACAB/@SEITARIFADET` (mateix UDT que `obtenir_palet_client`
+    però retornant tots els articles palet vigents, no només el primer).
+
+    Necessari perquè el Service Layer NO fa lookup automàtic a aquest UDT
+    quan s'insereixen línies via PATCH: si el motor no passa `UnitPrice`
+    explícit, SAP posa Price=0 encara que el client tingui tarifa
+    configurada. Aquest mateix UDT és el que llegeix el popup
+    "Obtenir articles tarifa client" del formulari Comanda de venda.
+
+    Retorna dict `{ItemCode: preu_float}`. Buit si:
+      - El client no té cap tarifa `@SEITARIFACAB` activa.
+      - Cap línia de la tarifa és `PALET*` vigent.
+
+    Estratègia (equivalent a `obtenir_palet_client`):
+      1. Filtrar tarifes actives (U_SEIActivo='Y', Canceled<>'Y').
+      2. Prioritzar tarifa amb `U_SEIDireccion LIKE '<adr_codi>-%'` si es passa.
+      3. Retornar totes les línies PALET vigents (U_SEIFechaFin NULL o futur).
+
+    Si `conn` es passa, es reutilitza (evita deadlock amb el semàfor).
+    """
+    _own_conn = conn is None
+    if _own_conn:
+        conn = connectar()
+    try:
+        sql = """
+            SELECT
+                RTRIM(d.U_SEIItemCode) AS art_codi,
+                d.U_SEIPrecio AS preu
+            FROM [@SEITARIFACAB] c WITH (NOLOCK)
+            INNER JOIN [@SEITARIFADET] d WITH (NOLOCK) ON d.DocEntry = c.DocEntry
+            WHERE c.U_SEICardCode = ?
+              AND c.U_SEIActivo = 'Y'
+              AND c.Canceled <> 'Y'
+              AND UPPER(RTRIM(d.U_SEIItemName)) LIKE 'PALET%'
+              AND (d.U_SEIFechaFin IS NULL OR d.U_SEIFechaFin >= GETDATE())
+              AND c.DocEntry = (
+                  SELECT TOP 1 c2.DocEntry
+                  FROM [@SEITARIFACAB] c2 WITH (NOLOCK)
+                  WHERE c2.U_SEICardCode = ?
+                    AND c2.U_SEIActivo = 'Y'
+                    AND c2.Canceled <> 'Y'
+                  ORDER BY
+                      CASE WHEN ? IS NOT NULL AND c2.U_SEIDireccion LIKE ? THEN 0 ELSE 1 END,
+                      c2.DocEntry DESC
+              )
+        """
+        adr_pattern = f"{adr_codi}-%" if adr_codi else None
+        rows = conn.execute(
+            sql, cli_codi, cli_codi, adr_codi, adr_pattern
+        ).fetchall()
+    finally:
+        if _own_conn:
+            conn.close()
+
+    result: dict[str, float] = {}
+    for r in rows:
+        art = (r.art_codi or "").strip()
+        if not art or r.preu is None:
+            continue
+        result[art] = float(r.preu)
+    return result
+
+
+# ============================================================
 # obtenir_palet_comanda(): línia de palet inclosa a la comanda
 # ============================================================
 def obtenir_palet_comanda(conn, sal_codigo: str, cpa_albara: str, eje_ejercicio: str | None = None) -> dict | None:
@@ -926,14 +997,15 @@ def obtenir_metadata_ordr_per_doc_entry(conn, doc_entry: int) -> dict:
     `(Series, DocNum)`. També retorna un `whs_code` de referència agafat de
     la primera línia RDR1, útil com a default per línies palet noves.
 
-    Retorna dict amb: series, docnum, card_code, doc_status, whs_code.
+    Retorna dict amb: series, docnum, card_code, addr, doc_status, whs_code.
     `whs_code` pot ser None si la comanda encara no té cap línia.
+    `addr` és Address2 (codi direcció d'enviament); pot ser None/buit.
 
     Raises ValueError si la comanda no existeix.
     """
     sql = """
         SELECT h.Series, h.DocNum, RTRIM(h.CardCode) AS CardCode,
-               h.DocStatus,
+               RTRIM(h.Address2) AS Address2, h.DocStatus,
                (SELECT TOP 1 RTRIM(l.WhsCode) FROM RDR1 l WITH (NOLOCK)
                  WHERE l.DocEntry = h.DocEntry AND l.WhsCode IS NOT NULL
                  ORDER BY l.LineNum) AS WhsCode
@@ -947,6 +1019,7 @@ def obtenir_metadata_ordr_per_doc_entry(conn, doc_entry: int) -> dict:
         "series": str(int(row.Series)),
         "docnum": str(int(row.DocNum)),
         "card_code": row.CardCode or "",
+        "addr": (row.Address2 or "").strip() or None,
         "doc_status": row.DocStatus or "",
         "whs_code": row.WhsCode or None,
     }

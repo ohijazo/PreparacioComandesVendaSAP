@@ -146,6 +146,45 @@ def test_generar_linies_llista_buida():
     assert slb.generar_linies_palet_sap([], whs_code="01") == []
 
 
+def test_generar_linies_amb_preu_client_aplicat():
+    """Si preus_client té l'ItemCode del palet, el payload inclou UnitPrice."""
+    palets = [
+        _PaletResumStub("01000", "PALET PLASTIC EUROPEU", 3, es_fisic=True),
+        _PaletResumStub("01030", "PALET FUSTA EUROPEU", 2, es_fisic=True),
+    ]
+    preus = {"01000": 35.0, "01050": 12.5}  # 01050 no s'usa; 01030 no hi és
+
+    linies = slb.generar_linies_palet_sap(palets, whs_code="01", preus_client=preus)
+
+    assert len(linies) == 2
+    l1000 = next(l for l in linies if l["ItemCode"] == "01000")
+    l1030 = next(l for l in linies if l["ItemCode"] == "01030")
+    # 01000 té tarifa → UnitPrice aplicat
+    assert l1000["UnitPrice"] == 35.0
+    # 01030 no té tarifa → sense UnitPrice (SAP ho deixa a 0)
+    assert "UnitPrice" not in l1030
+
+
+def test_generar_linies_preus_client_none_no_afegeix_unitprice():
+    """Retrocompatibilitat: preus_client=None manté el comportament previ."""
+    palets = [_PaletResumStub("01000", "PALET", 1, es_fisic=True)]
+
+    linies = slb.generar_linies_palet_sap(palets, whs_code="01", preus_client=None)
+
+    assert len(linies) == 1
+    assert "UnitPrice" not in linies[0]
+
+
+def test_generar_linies_preus_client_buit_no_afegeix_unitprice():
+    """preus_client={} (client sense tarifa palet) → comportament sense preu."""
+    palets = [_PaletResumStub("01000", "PALET", 1, es_fisic=True)]
+
+    linies = slb.generar_linies_palet_sap(palets, whs_code="01", preus_client={})
+
+    assert len(linies) == 1
+    assert "UnitPrice" not in linies[0]
+
+
 def test_generar_linies_agrega_mateix_itemcode():
     """El motor pot retornar múltiples PaletResum amb el mateix ItemCode
     (p.ex. quan diferents regles assignen 01030). L'agregat produeix una

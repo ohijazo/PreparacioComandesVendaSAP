@@ -8,9 +8,11 @@ mòdul genera la llista de dicts amb el format que espera Service Layer per
 Cada palet físic (`es_fisic=True`) es converteix en una línia amb:
 - `ItemCode` = `art_codi` del palet (ex: `01030`, `01010`).
 - `Quantity` = nombre de palets d'aquell tipus.
-- **Sense** camps de preu: SAP aplica el preu del client igual que si
-  l'operari afegís la línia manualment (preu especial per BP+Item,
-  llista de preus del BP a `OCRD.ListNum`, o preu per defecte de OITM).
+- `UnitPrice` = preu negociat al UDT `@SEITARIFADET.U_SEIPrecio` per aquest
+  client + article, si es passa `preus_client` amb l'entrada. Sense entrada
+  al dict → s'omet el camp i SAP fa fallback a Price=0 (el SL no llegeix
+  aquest UDT SEIDOR automàticament). Per la resta de fonts de preu
+  (OSPP, ITM1) SAP també fa lookup automàtic si no li passem UnitPrice.
 - `U_FCAfegit='S'` → marcador per identificar-les i substituir-les netament
   quan l'operari torni a clicar el botó (idempotència).
 - `TaxCode` opcional via variable d'entorn `SAP_TAX_CODE_PALET`. Si buida,
@@ -44,6 +46,7 @@ MARCADOR_LINIA_PALET_UDF = "U_FCAfegit"
 def generar_linies_palet_sap(
     palets,  # list[PaletResum] — evitem import per raons d'aïllament
     whs_code: str | None,
+    preus_client: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     """Converteix `resultat.palets` a llista de DocumentLine per Service Layer.
 
@@ -56,6 +59,9 @@ def generar_linies_palet_sap(
       fallback al magatzem per defecte del client.
     - Cada línia porta `U_FCAfegit='S'` per permetre'n l'esborrat automàtic
       a la propera crida (idempotència).
+    - Si `preus_client` conté una entrada per l'`ItemCode` del palet, el seu
+      valor es passa com a `UnitPrice`. En cas contrari s'omet el camp
+      (SAP el deixa a 0 si no troba tarifa OSPP/ITM1).
 
     Si el motor retorna múltiples `PaletResum` amb el mateix `art_codi`
     (pot passar quan diferents regles assignen el mateix tipus de palet),
@@ -65,6 +71,7 @@ def generar_linies_palet_sap(
 
     Retorna una llista ordenada tal com apareixerà a la comanda.
     """
+    preus = preus_client or {}
     # Agregar per ItemCode (preserva ordre d'aparició del primer)
     agregat: dict[str, dict[str, Any]] = {}
     for p in palets:
@@ -79,6 +86,8 @@ def generar_linies_palet_sap(
             "FreeText": FREE_TEXT_MARKER,
             MARCADOR_LINIA_PALET_UDF: MARCADOR_LINIA_PALET_VALOR,
         }
+        if p.art_codi in preus:
+            entry["UnitPrice"] = preus[p.art_codi]
         if whs_code:
             entry["WarehouseCode"] = whs_code
         if TAX_CODE_PALET:

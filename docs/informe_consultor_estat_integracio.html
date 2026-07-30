@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <title>Informe consultor SAP — Estat de la integració Motor Embalatges</title>
+    <style>
+        @page { size: A4; margin: 2cm; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #1a202c; max-width: 820px; margin: 0 auto; padding: 2rem; }
+        h1 { color: #2b6cb0; font-size: 20pt; border-bottom: 3px solid #2b6cb0; padding-bottom: 0.5rem; }
+        h2 { color: #2c5282; font-size: 14pt; margin-top: 2rem; border-bottom: 1px solid #bee3f8; padding-bottom: 0.3rem; page-break-after: avoid; }
+        h3 { color: #2d3748; font-size: 12pt; margin-top: 1.5rem; page-break-after: avoid; }
+        code { font-family: 'JetBrains Mono', 'Consolas', monospace; background: #edf2f7; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 10pt; }
+        pre { background: #1a202c; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 9.5pt; line-height: 1.5; }
+        pre code { background: none; color: inherit; padding: 0; }
+        table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 10pt; }
+        th, td { border: 1px solid #cbd5e0; padding: 0.5rem 0.75rem; text-align: left; vertical-align: top; }
+        th { background: #edf2f7; font-weight: 600; }
+        .info { background: #ebf8ff; border-left: 4px solid #3182ce; padding: 0.6rem 1rem; margin: 0.75rem 0; border-radius: 0 4px 4px 0; font-size: 10pt; }
+        .warning { background: #fffbeb; border-left: 4px solid #d69e2e; padding: 0.6rem 1rem; margin: 0.75rem 0; border-radius: 0 4px 4px 0; font-size: 10pt; }
+        .success { background: #f0fff4; border-left: 4px solid #38a169; padding: 0.6rem 1rem; margin: 0.75rem 0; border-radius: 0 4px 4px 0; font-size: 10pt; }
+        .question { background: #faf5ff; border-left: 4px solid #805ad5; padding: 0.6rem 1rem; margin: 0.75rem 0; border-radius: 0 4px 4px 0; font-size: 10pt; }
+        .header-meta { color: #718096; font-size: 10pt; margin-bottom: 2rem; }
+        .toc { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 1rem 1.5rem; margin: 1.5rem 0; }
+        .toc ol { padding-left: 1.25rem; }
+        ul, ol { padding-left: 1.5rem; }
+        li { margin-bottom: 0.3rem; }
+        .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; color: #a0aec0; font-size: 9pt; text-align: center; }
+        .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 3px; font-size: 9pt; font-weight: 600; margin-right: 0.3rem; }
+        .badge-ok { background: #c6f6d5; color: #22543d; }
+        .badge-new { background: #bee3f8; color: #2a4365; }
+        .badge-none { background: #e2e8f0; color: #4a5568; }
+    </style>
+</head>
+<body>
+
+<h1>Estat de la integració Motor d'Embalatges dins SAP B1</h1>
+<p style="font-size: 13pt; color: #4a5568; margin-top: -0.5rem;">Informe tècnic per revisió del consultor SAP</p>
+<div class="header-meta">
+    Data: Juliol 2026<br>
+    Autor: Oscar Hijazo (Agrienergia — Farinera Coromina)<br>
+    Estat: implementació completada, en validació prèvia a producció.<br>
+    Referència prèvia: <code>docs/proposta_integracio_sap.docx</code> (27 juliol 2026).
+</div>
+
+<div class="success">
+    <strong>Resum en 30 segons:</strong> El motor d'embalatges Python ja calcula i insereix les línies palet directament dins la Comanda de venda de SAP. L'operari clica un botó al form, espera 2-3 segons i les línies apareixen automàticament. Cap desenvolupament .NET SDK, cap add-on. El disseny final és <strong>més senzill que la proposta inicial</strong> — no fem servir el worker asíncron amb flag <code>U_FCCalcular</code>, sinó una crida sota demanda des d'un botó Boyum B1UP.
+</div>
+
+<div class="toc">
+    <strong>Contingut</strong>
+    <ol>
+        <li><a href="#comparativa">Comparativa proposta original vs implementació final</a></li>
+        <li><a href="#arquitectura">Arquitectura final</a></li>
+        <li><a href="#boto">Botó B1UP "Calcular embalatges"</a></li>
+        <li><a href="#webservice">Webservice REST (Flask a Ubuntu)</a></li>
+        <li><a href="#udfs">UDFs consumits + QryGroups aprofitats</a></li>
+        <li><a href="#servicelayer">Ús del Service Layer</a></li>
+        <li><a href="#validacio">Validació end-to-end</a></li>
+        <li><a href="#preguntes">Preguntes per validació del consultor</a></li>
+        <li><a href="#apendix-a">Apèndix A — Codi C# del botó B1UP</a></li>
+        <li><a href="#apendix-b">Apèndix B — Exemples de crides REST</a></li>
+        <li><a href="#apendix-c">Apèndix C — Gotchas del Service Layer detectats</a></li>
+    </ol>
+</div>
+
+<!-- 1. COMPARATIVA -->
+<h2 id="comparativa">1. Comparativa proposta original vs implementació final</h2>
+
+<table>
+    <tr><th>Aspecte</th><th>Proposta 27/07</th><th>Implementació final</th></tr>
+    <tr>
+        <td><strong>Trigger del càlcul</strong></td>
+        <td>Marca <code>U_FCCalcular='S'</code> + desa la comanda. Un worker Python polleja cada 5-10s.</td>
+        <td><strong>Botó explícit</strong> "Calcular embalatges" al form Comanda de venda (B1UP). Crida directa sense poll.</td>
+    </tr>
+    <tr>
+        <td><strong>UDFs nous a SAP</strong></td>
+        <td>3 UDFs a <code>ORDR</code>: <code>U_FCCalcular</code>, <code>U_FCEmbalatgeResum</code>, <code>U_FCEmbalatgeEstat</code>.</td>
+        <td><strong>1 UDF nou</strong>: <code>RDR1.U_FCAfegit</code> (Alfa 1, valors S/N) per marcar línies palet inserides pel motor. Els 3 UDFs proposats a ORDR han quedat opcionals (no s'usen).</td>
+    </tr>
+    <tr>
+        <td><strong>On es veu el resultat</strong></td>
+        <td>Camp <code>U_FCEmbalatgeResum</code> a la capçalera de la comanda (text 254 caràcters).</td>
+        <td><strong>Línies físiques palet</strong> directament dins la graella de la comanda (article + quantitat, com les línies producte). Es formen part del document i van a albarà/factura si escau.</td>
+    </tr>
+    <tr>
+        <td><strong>Refresh visual</strong></td>
+        <td>Automàtic (l'usuari recarrega el form).</td>
+        <td>Automàtic (el codi C# del botó fa <code>ActivateMenuItem("1304")</code>).</td>
+    </tr>
+    <tr>
+        <td><strong>Complexitat operativa</strong></td>
+        <td>Alta (worker background, monitoratge, retries).</td>
+        <td>Baixa (una crida HTTP síncrona; retries només al Service Layer).</td>
+    </tr>
+</table>
+
+<div class="info">
+    <strong>Motiu del canvi:</strong> el botó és més transparent per l'operari (acció explícita + resultat immediat) i estalvia la complexitat del worker asíncron. La resta de la proposta s'ha mantingut inalterada.
+</div>
+
+<!-- 2. ARQUITECTURA -->
+<h2 id="arquitectura">2. Arquitectura final</h2>
+
+<pre><code>SAP Business One Fat Client (usuari operari)
+        │
+        │ (1) Clica botó "Calcular embalatges" al form Comanda de venda (139)
+        ▼
+Boyum B1UP — UF-038 (Codi Dinàmic .NET)
+        │
+        │ (2) POST HTTP → http://192.168.11.244:5002/api/afegir-palets/{DocEntry}
+        ▼
+Servidor Ubuntu ae01farwebsrv (paral·lel amb Kais)
+Flask app (comandes-venda-sap.service, port 5002)
+        │
+        │ (3) Llegeix comanda + articles + direcció        ┌─── SQL Server SAP B1
+        ├──────────────────────────────────────────────────▶│ AE01SAPSQL / DB_FARINERA_TEST
+        │                                                    │ (només SELECT, ApplicationIntent=ReadOnly)
+        │
+        │ (4) Executa motor RF1-RF14 → llista de palets
+        │
+        │ (5) Insereix línies palet via PATCH SL           ┌─── Service Layer SAP B1
+        └──────────────────────────────────────────────────▶│ https://192.168.11.238:50000/b1s/v1
+                                                            │ Usuari SL: OHijazo
+                                                            │ Endpoint: /Orders({DocEntry})
+        │
+        │ (6) Retorna JSON amb resum
+        ▼
+UF-038 → refresh del form via ActivateMenuItem("1304")
+        │
+        ▼
+Operari veu les línies palet a la graella. Fi.</code></pre>
+
+<div class="info">
+    <strong>Coexistència amb Kais:</strong> el servidor Ubuntu <code>ae01farwebsrv</code> ja allotja l'app Kais existent (<code>/var/www/comandes-venda</code>, port 5001, servei <code>comandes-venda.service</code>). La variant SAP viu en paral·lel a <code>/var/www/comandes-venda-sap</code>, port 5002, servei <code>comandes-venda-sap.service</code>. Ambdues corren com a <code>www-data</code>. Kais no es toca fins novembre 2026.
+</div>
+
+<!-- 3. BOTÓ B1UP -->
+<h2 id="boto">3. Botó B1UP "Calcular embalatges"</h2>
+
+<h3>Configuració Function Button</h3>
+
+<table>
+    <tr><th>Element</th><th>Valor</th></tr>
+    <tr><td>Function Button</td><td><code>FB-004</code> (existent — no en creem de nova)</td></tr>
+    <tr><td>Form Type</td><td>139 (Sales Order / Comanda de venda)</td></tr>
+    <tr><td>Línia dins FB-004</td><td>3 (afegida al costat de "Enviar confirmació" ja existent)</td></tr>
+    <tr><td>Títol al toolbar</td><td>"Calcular embalatges"</td></tr>
+    <tr><td>Universal Function</td><td><code>UF-038</code> — "HTTP Motor Embalatges"</td></tr>
+</table>
+
+<h3>Configuració UF-038</h3>
+
+<table>
+    <tr><th>Camp</th><th>Valor</th></tr>
+    <tr><td>Clase</td><td>Código dinámico (.NET SDK)</td></tr>
+    <tr><td>Llenguatge</td><td>C#</td></tr>
+    <tr><td>Referències</td><td>SAPbouiCOM, SAPbobsCOM, System, System.Net, System.IO (totes per defecte de B1UP)</td></tr>
+</table>
+
+<p>Lògica implementada al codi (vegeu <a href="#apendix-a">Apèndix A</a> per al codi complet):</p>
+
+<ol>
+    <li><strong>Precondició</strong>: comprovar <code>form.Mode == fm_OK_MODE</code>. Si l'operari té canvis pendents a la comanda, es mostra un MessageBox demanant que desi primer.</li>
+    <li><strong>Obtenir DocEntry</strong>: via <code>form.DataSources.DBDataSources.Item("ORDR").GetValue("DocEntry", 0)</code>.</li>
+    <li><strong>Crida HTTP POST</strong> al webservice amb <code>System.Net.HttpWebRequest</code>. Timeout 60s.</li>
+    <li><strong>Refresh del form</strong>: <code>application.ActivateMenuItem("1304")</code> (Refresh Record).</li>
+    <li><strong>Feedback</strong>: missatge OK al StatusBar; en cas d'error mostra MessageBox amb el detall.</li>
+</ol>
+
+<div class="info">
+    <strong>Sense desenvolupament .NET SDK:</strong> tot el codi viu dins el Configurator de B1UP. No hem instal·lat cap add-on, no hem creat cap DLL, no toquem l'add-on framework de SAP. Si es desactiva B1UP, el botó desapareix però l'app SAP segueix intacta.
+</div>
+
+<!-- 4. WEBSERVICE -->
+<h2 id="webservice">4. Webservice REST (Flask a Ubuntu)</h2>
+
+<h3>Deploy</h3>
+
+<table>
+    <tr><th>Element</th><th>Valor</th></tr>
+    <tr><td>Servidor</td><td><code>ae01farwebsrv</code> (192.168.11.244) — mateix host que Kais</td></tr>
+    <tr><td>Path</td><td><code>/var/www/comandes-venda-sap</code></td></tr>
+    <tr><td>Servei systemd</td><td><code>comandes-venda-sap.service</code> (autoinici, restart on failure)</td></tr>
+    <tr><td>Usuari execució</td><td><code>www-data</code></td></tr>
+    <tr><td>Port intern</td><td>5002 (accessible directament ara; Apache + gunicorn en fase producció — pendent Sistemes)</td></tr>
+    <tr><td>Codi font</td><td>GitHub <code>ohijazo/PreparacioComandesVendaSAP</code></td></tr>
+    <tr><td>Deploy</td><td>Script <code>deploy.sh</code> al root del repo (git pull + reiniciar servei)</td></tr>
+</table>
+
+<h3>Endpoints rellevants</h3>
+
+<table>
+    <tr><th>Endpoint</th><th>Mètode</th><th>Ús</th></tr>
+    <tr>
+        <td><code>/api/afegir-palets/&lt;DocEntry&gt;</code></td>
+        <td>POST</td>
+        <td>Càlcul + escriptura línies palet via SL. <strong>Aquest és el que crida el botó.</strong></td>
+    </tr>
+    <tr>
+        <td><code>/api/calcular/&lt;serie&gt;/&lt;numero&gt;</code></td>
+        <td>GET</td>
+        <td>Càlcul només (retorna JSON amb el resultat i traçabilitat). Sense side-effects a SAP. Útil per debug.</td>
+    </tr>
+    <tr>
+        <td><code>/api/admin/sync-status</code></td>
+        <td>GET</td>
+        <td>Estat intern del servei per monitoratge.</td>
+    </tr>
+</table>
+
+<p>Vegeu <a href="#apendix-b">Apèndix B</a> per exemples de crida i respostes.</p>
+
+<!-- 5. UDFs -->
+<h2 id="udfs">5. UDFs consumits + QryGroups aprofitats</h2>
+
+<h3>UDFs a taules SAP (llegits pel motor)</h3>
+
+<table>
+    <tr>
+        <th>Taula</th>
+        <th>UDF</th>
+        <th>Rol al motor</th>
+        <th>Origen</th>
+    </tr>
+    <tr>
+        <td rowspan="7"><code>OITM</code><br>(dades article)</td>
+        <td><code>U_SEIUnitatsPalet</code></td>
+        <td>uxc (unitats per palet)</td>
+        <td><span class="badge badge-ok">Existent</span> Creat per tu prèviament</td>
+    </tr>
+    <tr>
+        <td><code>U_SEIUnitatsApilables</code></td>
+        <td>cantidadapilable (sacs per capa)</td>
+        <td><span class="badge badge-ok">Existent</span></td>
+    </tr>
+    <tr>
+        <td><code>U_SEIPaletProd</code></td>
+        <td>palet_producte_estoc (RF7 — palet per articles estoc)</td>
+        <td><span class="badge badge-ok">Existent</span></td>
+    </tr>
+    <tr>
+        <td><code>U_SEIFamCialCat</code></td>
+        <td>(deprecated — vam usar-lo com a proxy per <code>sac_colagne_normal</code>, ara substituït per QryGroup4)</td>
+        <td><span class="badge badge-ok">Existent</span></td>
+    </tr>
+    <tr>
+        <td rowspan="3"><code>CRD1</code><br>(direcció envio)</td>
+        <td><code>U_SEITIPOD</code></td>
+        <td>tipus_descarrega (PALET/MANUAL)</td>
+        <td><span class="badge badge-ok">Existent</span></td>
+    </tr>
+    <tr>
+        <td><code>U_SEISACOSB</code></td>
+        <td>sacs_x_base (RF5)</td>
+        <td><span class="badge badge-ok">Existent</span></td>
+    </tr>
+    <tr>
+        <td><code>U_SEIMAXSP</code>, <code>U_SEIPEDIDOM</code>, <code>U_SEIPREVAL</code></td>
+        <td>max_sacs_palet, min_sacs_comanda, preval_direccio</td>
+        <td><span class="badge badge-ok">Existent</span></td>
+    </tr>
+    <tr>
+        <td><code>RDR1</code><br>(línies comanda)</td>
+        <td><code>U_FCAfegit</code></td>
+        <td>Marca les línies palet inserides pel motor. Valors: <code>S</code>=Sí, <code>N</code>=No. Idempotència del recàlcul (permet reciclar línies velles).</td>
+        <td><span class="badge badge-new">NOU</span> Creat el 28/07 per aquest projecte</td>
+    </tr>
+</table>
+
+<h3>UDT SEIDOR consumits</h3>
+
+<table>
+    <tr>
+        <th>UDT</th>
+        <th>Camps llegits</th>
+        <th>Ús al motor</th>
+    </tr>
+    <tr>
+        <td><code>@SEITARIFACAB</code></td>
+        <td><code>U_SEICardCode</code>, <code>U_SEIDireccion</code>, <code>U_SEIActivo</code>, <code>Canceled</code></td>
+        <td>Filtre per client i direcció d'enviament amb precedència.</td>
+    </tr>
+    <tr>
+        <td><code>@SEITARIFADET</code></td>
+        <td><code>U_SEIItemCode</code>, <code>U_SEIItemName</code>, <code>U_SEIPrecio</code>, <code>U_SEIFechaFin</code></td>
+        <td>
+            2 usos:
+            <ul>
+                <li><strong>Fallback tipus palet</strong>: quan la direcció no té <code>U_SEITIPOD</code> configurat, el motor detecta el tipus de palet buscant la primera línia amb <code>ItemName</code> que comença per <code>PALET</code>. Substitueix el <code>PREUSCLIENTS.xlsx</code> de Kais.</li>
+                <li><strong>Preu de la línia palet</strong>: quan el motor insereix la línia palet física, agafa <code>U_SEIPrecio</code> d'aquest UDT i l'envia com a <code>UnitPrice</code> al PATCH. Sense això, el SL deixa <code>Price=0</code> (no llegeix aquest UDT SEIDOR automàticament) — mateix comportament que el popup "Obtenir articles tarifa client" del form.</li>
+            </ul>
+        </td>
+    </tr>
+</table>
+
+<h3>QryGroups aprofitats (dades ja existents a SAP)</h3>
+
+<div class="info">
+    <strong>Reducció de UDFs</strong>: en lloc de crear UDFs nous per algunes propietats, hem detectat que ja hi ha QryGroups a OITM que contenen exactament la informació que necessitem. Cap migració de dades addicional necessària. Coincidència 100% amb les llistes autoritatives de Kais.
+</div>
+
+<table>
+    <tr>
+        <th>QryGroup</th>
+        <th>Propietat al motor</th>
+        <th>Regla que ho fa servir</th>
+        <th>Articles marcats</th>
+    </tr>
+    <tr>
+        <td><code>OITM.QryGroup2 = 'Y'</code></td>
+        <td>dimensio_especial</td>
+        <td>RF4 (articles amb dimensió especial → embalatge propi)</td>
+        <td>4 articles</td>
+    </tr>
+    <tr>
+        <td><code>OITM.QryGroup3 = 'Y'</code></td>
+        <td>sac_25_especial</td>
+        <td>RF6 (sac 25 kg especial → palet reduït)</td>
+        <td>13 articles</td>
+    </tr>
+    <tr>
+        <td><code>OITM.QryGroup4 = 'Y'</code></td>
+        <td>sac_colagne_normal</td>
+        <td>RF8 (article Colagne → palet europeu base=3)</td>
+        <td>11 articles</td>
+    </tr>
+</table>
+
+<h3>UDFs proposats a l'inicial i que NO usem</h3>
+
+<table>
+    <tr><th>UDF</th><th>Estat</th><th>Decisió</th></tr>
+    <tr>
+        <td><code>ORDR.U_FCCalcular</code> (Alfa 1)</td>
+        <td><span class="badge badge-none">No usat</span></td>
+        <td>Substituit pel botó B1UP. Pot eliminar-se o deixar-se per si en algun moment activem el worker asíncron.</td>
+    </tr>
+    <tr>
+        <td><code>ORDR.U_FCEmbalatgeResum</code> (Alfa 254)</td>
+        <td><span class="badge badge-none">No usat</span></td>
+        <td>El resum ara són les línies físiques palet a RDR1. Es pot eliminar.</td>
+    </tr>
+    <tr>
+        <td><code>ORDR.U_FCEmbalatgeEstat</code> (Alfa 30)</td>
+        <td><span class="badge badge-none">No usat</span></td>
+        <td>Idem. Es pot eliminar.</td>
+    </tr>
+</table>
+
+<div class="question">
+    <strong>Pregunta 1 per tu:</strong> aquests 3 UDFs a ORDR — vols que els deixem per si l'activem més endavant, o prefereixes que els eliminis per netedat? Nosaltres podem viure amb qualsevol de les dues opcions.
+</div>
+
+<!-- 6. SERVICE LAYER -->
+<h2 id="servicelayer">6. Ús del Service Layer</h2>
+
+<h3>Usuari SL</h3>
+
+<ul>
+    <li>Usuari: <code>OHijazo</code> (usuari dedicat que ens vas crear).</li>
+    <li>URL: <code>https://192.168.11.238:50000/b1s/v1</code>.</li>
+    <li>Companyia: <code>DB_FARINERA_TEST</code>.</li>
+    <li>SSL: verify_ssl=false (cert auto-signat).</li>
+    <li>Timeout per request: 15s (amb reintents automàtics).</li>
+</ul>
+
+<h3>Operacions SL usades</h3>
+
+<table>
+    <tr><th>Operació</th><th>Freqüència</th><th>Comentari</th></tr>
+    <tr>
+        <td><code>POST /Login</code> / <code>POST /Logout</code></td>
+        <td>1 cop per crida al botó</td>
+        <td>Sessió efímera; renovació preventiva als 25 min si es reutilitza.</td>
+    </tr>
+    <tr>
+        <td><code>GET /Orders({DocEntry})?$select=DocEntry,DocumentLines</code></td>
+        <td>1 cop per crida</td>
+        <td>Lectura de les línies actuals per determinar quines reciclar.</td>
+    </tr>
+    <tr>
+        <td><code>PATCH /Orders({DocEntry})</code> (tancament)</td>
+        <td>Opcional (només si hi ha palets d'un ItemCode que ja no aplica)</td>
+        <td>Marca <code>LineStatus="bost_Close"</code> a línies palet residuals.</td>
+    </tr>
+    <tr>
+        <td><code>PATCH /Orders({DocEntry})</code> (update + add)</td>
+        <td>1 cop per crida</td>
+        <td>Update in-place de línies palet existents (mateix ItemCode) + noves línies al final. Preservació de línies usuari amb placeholders <code>{LineNum: X}</code>.</td>
+    </tr>
+</table>
+
+<h3>Patró d'idempotència</h3>
+
+<p>El botó pot cridar-se múltiples vegades sobre la mateixa comanda sense duplicar línies palet:</p>
+
+<ol>
+    <li>El motor recalcula el resultat.</li>
+    <li>Per cada nova línia palet, si ja existeix una amb el mateix <code>ItemCode</code> (marcada amb <code>U_FCAfegit='S'</code>), es fa PATCH in-place de <code>Quantity</code>. Sense residus.</li>
+    <li>Les línies palet velles amb <code>ItemCode</code> ja no aplicable es tanquen (<code>bost_Close</code>).</li>
+    <li>Les línies usuari (sense <code>U_FCAfegit='S'</code>) es preserven intactes.</li>
+</ol>
+
+<div class="warning">
+    <strong>Limitació SAP coneguda:</strong> el Service Layer NO permet DELETE de línies individuals (retorna <code>-5006</code>). La única forma "neta" d'invalidar una línia és <code>LineStatus="bost_Close"</code>. Aquestes línies queden a RDR1 com a residual històric però NO compten a totals ni albarà. Recomanem als usuaris amagar-les del formulari amb "Ajustes de formulario → Ocultar líneas cerradas".
+</div>
+
+<div class="question">
+    <strong>Pregunta 2 per tu:</strong> ¿ens confirmes que els permisos de l'usuari <code>OHijazo</code> a Service Layer cobreixen <code>GET</code>+<code>PATCH</code> sobre <code>Orders</code>, i lectura sobre <code>OITM</code>/<code>CRD1</code>/<code>RDR1</code>/<code>ORDR</code>? Empíricament funciona; volem confirmació formal.
+</div>
+
+<!-- 7. VALIDACIÓ -->
+<h2 id="validacio">7. Validació end-to-end</h2>
+
+<h3>Cas de test: comanda 268/26600137</h3>
+
+<p>Vam agafar una comanda representativa (19 línies producte, 939 sacs computables, 18 articles diferents amb regles variades) i comparar el resultat del motor SAP amb el motor Kais equivalent (mateixa comanda reproduïda). El resultat inicial no coincidia (25 vs 23 palets); vam identificar la causa i corregir-la:</p>
+
+<table>
+    <tr><th>Iteració</th><th>Motor SAP</th><th>Motor Kais</th><th>Comentari</th></tr>
+    <tr>
+        <td>1a (proxy per família)</td>
+        <td>25 palets</td>
+        <td>23 palets</td>
+        <td>El proxy <code>U_SEIFamCialCat = 'MOULIN DE COLAGNE'</code> marcava 40 articles com <code>sac_colagne_normal</code>. A Kais només 11 concrets ho són. Els 29 falsos positius forçaven palets més petits.</td>
+    </tr>
+    <tr>
+        <td>2a (via QryGroup4)</td>
+        <td><strong>23 palets</strong></td>
+        <td>23 palets</td>
+        <td><span class="badge badge-ok">Paritat 100%</span> Fix: usar <code>OITM.QryGroup4='Y'</code> (llista dels 11 articles autoritatius que ja tens a SAP).</td>
+    </tr>
+</table>
+
+<div class="info">
+    <strong>Lliçó extreta:</strong> els proxies per família comercial poden semblar equivalents però tenen falsos positius. Sempre validar empíricament la llista d'articles marcats vs la llista Kais autoritativa. Ara al codi tenim tests unitaris que garanteixen aquest mapping.
+</div>
+
+<!-- 8. PREGUNTES -->
+<h2 id="preguntes">8. Preguntes per validació del consultor</h2>
+
+<div class="question">
+    <strong>P1 — UDFs sense ús:</strong> <code>ORDR.U_FCCalcular</code>, <code>ORDR.U_FCEmbalatgeResum</code> i <code>ORDR.U_FCEmbalatgeEstat</code>. Els deixem o els eliminem?
+</div>
+
+<div class="question">
+    <strong>P2 — Permisos SL:</strong> ¿ens confirmes formalment que l'usuari <code>OHijazo</code> té els permisos correctes per llegir <code>Orders/OITM/CRD1</code> i escriure a <code>Orders</code> (PATCH)? Ara funciona, però volem tenir-ho documentat abans de producció.
+</div>
+
+<div class="question">
+    <strong>P3 — Patró de línies tancades:</strong> ¿veus algun risc al fet que acumulem línies palet en estat <code>bost_Close</code> per canvis d'ItemCode en re-càlculs? A la pràctica passa molt poc (el 90% dels casos són in-place, sense tancament), però volem estar segurs que no fas servir <code>LineStatus</code> per res crític de negoci que pugui afectar-nos.
+</div>
+
+<div class="question">
+    <strong>P4 — Bloqueig SL -1116:</strong> vam patir un episodi (24/07) on el SL rebutjava PATCHs amb error <code>-1116 "Could not commit transaction"</code>. Es va resoldre reiniciant els 4 serveis SL al servidor Windows. ¿Saps de què pot dependre aquest tipus de bloqueig, o si hi ha manera de mitigar-lo?
+</div>
+
+<!-- APÈNDIX A: CODI C# -->
+<h2 id="apendix-a">Apèndix A — Codi C# del botó B1UP</h2>
+
+<p>Aquest és el codi complet que hi ha a la Universal Function <strong>UF-038</strong> del Configurator de B1UP. La signatura <code>DynamicCode(params object[] parameters)</code> és generada per B1UP; nosaltres omplim el cos.</p>
+
+<pre><code>// 1. Comprovar que la comanda no té canvis pendents
+//    (el MenuID 1304 "Refresh Record" queda deshabilitat si hi ha canvis pendents)
+if (form.Mode != SAPbouiCOM.BoFormMode.fm_OK_MODE)
+{
+    application.MessageBox(
+        "La comanda té canvis pendents. Desa-la abans de calcular els embalatges."
+    );
+    return;
+}
+
+// 2. Obtenir DocEntry via DBDataSource (més estable que Item ID)
+string docEntry;
+try
+{
+    docEntry = form.DataSources.DBDataSources
+        .Item("ORDR")
+        .GetValue("DocEntry", 0)
+        .Trim();
+}
+catch (System.Exception ex)
+{
+    application.MessageBox("Error obtenint DocEntry: " + ex.Message);
+    return;
+}
+
+if (string.IsNullOrEmpty(docEntry) || docEntry == "0")
+{
+    application.MessageBox("Cal desar la comanda abans de calcular els embalatges.");
+    return;
+}
+
+// 3. Cridar el webservice
+try
+{
+    var request = (System.Net.HttpWebRequest)
+        System.Net.WebRequest.Create(
+            "http://192.168.11.244:5002/api/afegir-palets/" + docEntry
+        );
+    request.Method = "POST";
+    request.Timeout = 60000;
+    request.ContentLength = 0;
+
+    using (var response = (System.Net.HttpWebResponse)request.GetResponse())
+    {
+        // La resposta s'ha tancat i el motor ja ha inserit les línies.
+    }
+
+    // 4. Refrescar el registre obert (Refresh Record del toolbar)
+    application.ActivateMenuItem("1304");
+
+    application.StatusBar.SetText(
+        "Embalatges recalculats i comanda actualitzada.",
+        SAPbouiCOM.BoMessageTime.bmt_Short,
+        SAPbouiCOM.BoStatusBarMessageType.smt_Success
+    );
+}
+catch (System.Net.WebException wex)
+{
+    string errBody = "";
+    if (wex.Response != null)
+    {
+        using (var reader = new System.IO.StreamReader(wex.Response.GetResponseStream()))
+        {
+            errBody = reader.ReadToEnd();
+        }
+    }
+    application.MessageBox("Error HTTP: " + wex.Message + "\n" + errBody);
+}
+catch (System.Exception ex)
+{
+    application.MessageBox("Error inesperat: " + ex.Message);
+}</code></pre>
+
+<!-- APÈNDIX B: CRIDES REST -->
+<h2 id="apendix-b">Apèndix B — Exemples de crides REST</h2>
+
+<h3>Càlcul + escriptura (el que fa el botó)</h3>
+
+<pre><code>curl -X POST http://192.168.11.244:5002/api/afegir-palets/137
+
+# Resposta:
+{
+  "ok": true,
+  "doc_entry": 137,
+  "estat": "CALCULAT",
+  "linies_afegides": 0,
+  "linies_actualitzades": 1,
+  "linies_esborrades": 0,
+  "resum": {"total_palets": 23, "total_sacs": 939},
+  "missatges": []
+}</code></pre>
+
+<h3>Càlcul només (sense escriure a SAP — útil per debug)</h3>
+
+<pre><code>curl http://192.168.11.244:5002/api/calcular/268/26600137
+
+# Retorna JSON extens amb:
+#   - "estado": "CALCULAT" | "CALCULAT_AMB_AVISOS" | "SOTA_MINIM" | "NO_CALCULABLE"
+#   - "embalatges": [ {palet_num, contingut, sacs_totals, ...}, ... ]
+#   - "palets": [ {art_codi, quantitat, es_fisic, es_despaletitzat}, ... ]
+#   - "trazabilitat": [ "RF1: ...", "RF2: ...", "Palet 1: ...", ... ]
+#   - "avisos_dades": [ {camp, missatge, tipus}, ... ]</code></pre>
+
+<h3>Estat del servei (monitoratge)</h3>
+
+<pre><code>curl http://192.168.11.244:5002/api/admin/sync-status
+
+# Resposta: JSON amb última execució, comptadors, health check</code></pre>
+
+<!-- APÈNDIX C: GOTCHAS SL -->
+<h2 id="apendix-c">Apèndix C — Gotchas del Service Layer detectats</h2>
+
+<p>Vam trobar aquests comportaments no evidents del Service Layer durant la implementació. Les incloc aquí per si t'aporten context o si algun altre projecte pot tenir el mateix problema:</p>
+
+<table>
+    <tr><th>#</th><th>Comportament</th><th>Solució aplicada</th></tr>
+    <tr>
+        <td>G1</td>
+        <td><code>DELETE /Orders(N)/DocumentLines(K)</code> retorna <code>-5006 "action not supported"</code>.</td>
+        <td>No es pot esborrar línies individualment. Alternativa: <code>PATCH</code> amb <code>LineStatus="bost_Close"</code>.</td>
+    </tr>
+    <tr>
+        <td>G2</td>
+        <td><code>POST /Orders(N)/DocumentLines</code> per afegir línies retorna <code>-1008 "Command Not Found"</code>.</td>
+        <td>No hi ha subcollection endpoint. Alternativa: <code>PATCH /Orders(N)</code> amb tot el <code>DocumentLines</code> incloent placeholders.</td>
+    </tr>
+    <tr>
+        <td>G3</td>
+        <td>Un PATCH que barreja <code>LineStatus="bost_Close"</code> amb altres modificacions retorna <code>-5002 "cannot be closed concurrently"</code>.</td>
+        <td>Separar en 2 PATCH: (1) només tancament, (2) update+add. Fer-los seqüencialment.</td>
+    </tr>
+    <tr>
+        <td>G4</td>
+        <td>Enviar <code>DocumentLines</code> sense <code>LineNum</code> per línies existents provoca sobreescriptura per posició (destructiu).</td>
+        <td>Per cada línia existent (oberta o tancada) enviar placeholder <code>{LineNum: X}</code>. SAP preserva la línia. Les noves van sense <code>LineNum</code> al final.</td>
+    </tr>
+    <tr>
+        <td>G5</td>
+        <td>UDFs amb valors vàlids (S/N) no accepten string buit — retornen <code>-1004</code>.</td>
+        <td>Sempre enviar un dels valors vàlids o ometre el camp. En el nostre cas usem <code>U_FCAfegit='S'</code>.</td>
+    </tr>
+    <tr>
+        <td>G6</td>
+        <td><code>POST /Orders(N)/Update</code> retorna <code>-1029 "Field cannot be updated"</code> per UDFs.</td>
+        <td>No fer servir aquest endpoint per UDFs. Usar <code>PATCH /Orders(N)</code> directament.</td>
+    </tr>
+</table>
+
+<div class="info">
+    Aquests gotchas estan documentats en detall al fitxer <code>tasks/lessons.md</code> (L2) del repositori intern, amb el patró correcte per cada cas.
+</div>
+
+<div class="footer">
+    Agrienergia — Motor de Preparació de Comandes de Venda (variant SAP) · Informe consultor v1 · 2026-07-30
+</div>
+
+</body>
+</html>
