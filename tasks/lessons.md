@@ -464,6 +464,30 @@ Ordre de diagnòstic actualitzat per errors SL post-canvi d'esquema:
 1. Recent hem tocat UDFs/UDTs? → Reiniciar SL. Fi.
 2. La resta de passos de L1 (comprovar TN, triggers, add-ons Java).
 
+### Actualització 2026-07-30 (post-primer reinici)
+
+L'error es va repetir **amb un UDF diferent** (`U_SEIVarietat`) a la comanda
+26600145 poques hores després del reinici. Peró la comanda 26600140 (que
+funcionava abans) seguia funcionant, i altres comandes tampoc afectades
+— l'error és **específic per certes comandes** amb configuració SEIDOR
+particular (ex: aquesta 145 tenia articles ecològics 40xxx amb famí\lia
+`ECOLÒGIQUES`).
+
+Observacions:
+- `U_SEIVarietat` no existeix a ORDR, però sí a `AOAT`/`OOAT` (lots).
+- Cap objecte SQL a la BD el referencia (mòduls, vistes, defaults).
+- El reinici del SL resol el problema puntualment per aquesta comanda.
+
+Hipòtesi (no confirmada): el SL té alguna extensió SEIDOR (add-on Java al
+filesystem del SL, o hook específic al login) que fa validacions extra
+depenent de camps/UDFs presents als articles de la comanda, i aquesta
+extensió té expectatives d'esquema que no coincideixen amb la BD real.
+
+**Recomanació operativa**: quan es reprodueixi, primer provar la comanda
+i si falla amb `Invalid column name 'U_XXX'`, reiniciar el SL. Considerar
+consultar el consultor SEIDOR per estabilitzar aquest cache invalidat.
+Ja hi ha una P5 preparada al mail al consultor per plantejar-ho.
+
 ---
 
 ## L8 — "Paritat amb Kais": codi Git vs entorn productiu
