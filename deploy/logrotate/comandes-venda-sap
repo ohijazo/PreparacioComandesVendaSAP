@@ -1,0 +1,18 @@
+# =============================================================================
+# logrotate - Motor Preparació Comandes Venda (variant SAP)
+# =============================================================================
+# Destinació al servidor: /etc/logrotate.d/comandes-venda-sap
+# El deploy.sh --first-install copia aquest fitxer automàticament.
+# Test dry-run: sudo logrotate -d /etc/logrotate.d/comandes-venda-sap
+# =============================================================================
+
+/var/www/comandes-venda-sap/access.log
+/var/www/comandes-venda-sap/error.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

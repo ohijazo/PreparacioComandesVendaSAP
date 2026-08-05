@@ -45,6 +45,7 @@
 <div class="toc">
     <strong>Contingut</strong>
     <ol>
+        <li><a href="#estrategia-url">Estratègia URL</a></li>
         <li><a href="#context">Context i estat inicial</a></li>
         <li><a href="#arquitectura">Arquitectura de producció</a></li>
         <li><a href="#gunicorn">Substituir dev server per Gunicorn</a></li>
@@ -58,6 +59,24 @@
         <li><a href="#troubleshooting">Resolució de problemes</a></li>
         <li><a href="#resum">Resum i temps estimats</a></li>
     </ol>
+</div>
+
+<!-- 0. ESTRATÈGIA URL -->
+<h2 id="estrategia-url">0. Estratègia URL</h2>
+
+<p>L'app SAP <strong>hereta la URL històrica</strong> <code>comandes.agrienergia.local</code> que actualment serveix Kais. Els usuaris no han de canviar cap enllaç ni favorit.</p>
+
+<p>Kais es <strong>rebateja</strong> a <code>comandes-kais.agrienergia.local</code> i queda com a fallback per si cal marxa enrere ràpida (rollback en &lt; 5 min). Kais continua actiu al port 5001 fins novembre 2026 (segons acord operatiu).</p>
+
+<table>
+    <tr><th>URL</th><th>Abans del swap</th><th>Després del swap</th></tr>
+    <tr><td><code>comandes.agrienergia.local</code></td><td>Kais (port 5001)</td><td><strong>SAP (port 5002)</strong></td></tr>
+    <tr><td><code>comandes-kais.agrienergia.local</code></td><td>—</td><td>Kais (port 5001, fallback)</td></tr>
+    <tr><td><code>192.168.11.244:5002</code> (IP directa)</td><td>SAP (dev server)</td><td>SAP (Gunicorn, fallback tècnic)</td></tr>
+</table>
+
+<div class="info">
+    <strong>Runbook del swap:</strong> el procediment operacional detallat del canvi (Fase A preparació, Fase B swap, Fase C verificació, i rollback) es troba a <code>docs/runbook_swap_url_produccio.md</code> al repo. Aquesta guia HTML descriu l'<em>arquitectura</em>; el runbook descriu els <em>passos exactes</em> al servidor durant el canvi.
 </div>
 
 <!-- 1. CONTEXT -->
@@ -81,7 +100,7 @@
 <p>L'endpoint principal de l'aplicació SAP és <code>POST /api/afegir-palets/&lt;DocEntry&gt;</code>. El botó <strong>"Calcular embalatges"</strong> del formulari Sales Order de SAP (configurat via B1UP a la Function Button FB-004, línia "Calcular embalatges" → UF-038 amb Codi Dinàmic .NET) fa la crida HTTP a aquest endpoint.</p>
 
 <div class="info">
-    <strong>Coexistència amb Kais:</strong> Les dues apps són independents. Kais llegeix la BD del sistema antic; SAP llegeix i escriu a SAP Business One via Service Layer. <strong>La migració a producció de SAP no ha d'afectar Kais en cap moment</strong> — segons acord operatiu, Kais ha de seguir funcionant fins novembre 2026.
+    <strong>Coexistència amb Kais:</strong> Les dues apps són independents. Kais llegeix la BD del sistema antic; SAP llegeix i escriu a SAP Business One via Service Layer. Kais <strong>continua actiu</strong> al port 5001 fins novembre 2026, servit ara a <code>comandes-kais.agrienergia.local</code> (vegeu secció 0). L'únic moment sensible és la finestra del swap Apache (~30 s), en la qual el <code>ServerName</code> de Kais canvia; durant aquest interval s'afegeix un <code>ServerAlias</code> temporal per no dropar peticions in-flight.
 </div>
 
 <!-- 2. ARQUITECTURA -->
@@ -141,11 +160,14 @@ Environment=PORT=5002
 EnvironmentFile=/var/www/comandes-venda-sap/.env
 ExecStart=/var/www/comandes-venda-sap/venv/bin/gunicorn \
     --bind 127.0.0.1:5002 \
+    --worker-class gthread \
     --workers 2 \
-    --timeout 120 \
+    --threads 4 \
+    --timeout 180 \
+    --graceful-timeout 30 \
     --access-logfile /var/www/comandes-venda-sap/access.log \
     --error-logfile /var/www/comandes-venda-sap/error.log \
-    app:app
+    wsgi:app
 Restart=always
 RestartSec=5
 
@@ -154,6 +176,15 @@ WantedBy=multi-user.target</code></pre>
 
 <div class="info">
     <strong>Nota:</strong> Gunicorn escoltarà a <code>127.0.0.1:5002</code> (només localhost). L'accés extern es fa a través d'Apache, mai directament a Gunicorn. Aquest patró és idèntic al de Kais.
+</div>
+
+<div class="info">
+    <strong>Per què <code>gthread</code> en comptes de <code>sync</code> workers?</strong> L'endpoint principal <code>POST /api/afegir-palets/</code> fa múltiples crides HTTP bloquejants a Service Layer (patró GET-modify-PATCH). Amb 2 sync workers, 3 usuaris B1UP concurrents ja saturarien el pool. Amb <code>gthread 2×4</code> obtenim 8 slots concurrents amb un footprint de memòria similar. El <code>--timeout 180</code> deixa marge per crides SL lentes.<br><br>
+    <strong>Validació:</strong> executar <code>bash scripts/smoke_load_test.sh 127.0.0.1:5002 &lt;DocEntry_test&gt;</code> — les 10 peticions concurrents han de tenir temps individual similar al warmup. Si són ~10× el warmup, hi ha un lock (típicament re-login SL); revisar <code>SLClient</code>.
+</div>
+
+<div class="info">
+    <strong>Per què <code>wsgi:app</code> i no <code>app:app</code>?</strong> El fitxer <code>wsgi.py</code> és un entry point net per Gunicorn. Actualment només fa <code>from app import app</code>, però permet trampes futures (p.ex. saltar warmup en workers secundaris) sense tocar <code>app.py</code>.
 </div>
 
 <h3>3.4 Recarregar systemd i reiniciar</h3>
@@ -178,7 +209,7 @@ curl -X POST -s http://127.0.0.1:5002/api/afegir-palets/128</code></pre>
 <p>Contingut:</p>
 
 <pre><code>&lt;VirtualHost *:80&gt;
-    ServerName comandes-sap.agrienergia.local
+    ServerName comandes.agrienergia.local
 
     # Permetre barres codificades a les URLs (patró consistent amb Kais)
     AllowEncodedSlashes NoDecode
@@ -205,20 +236,20 @@ sudo systemctl reload apache2</code></pre>
 
 <h3>4.3 Verificar a través d'Apache</h3>
 <pre><code># Des del propi servidor
-curl -X POST -s -H "Host: comandes-sap.agrienergia.local" \
+curl -X POST -s -H "Host: comandes.agrienergia.local" \
     http://127.0.0.1/api/afegir-palets/128</code></pre>
 
 <!-- 5. DNS + FIREWALL -->
 <h2 id="dns">5. DNS i tallafocs</h2>
 
 <h3>5.1 Entrada DNS</h3>
-<p>Afegir una entrada DNS per <code>comandes-sap.agrienergia.local</code> al servidor DNS corporatiu, apuntant a la IP del servidor:</p>
+<p>Afegir una entrada DNS per <code>comandes.agrienergia.local</code> al servidor DNS corporatiu, apuntant a la IP del servidor:</p>
 
-<pre><code>comandes-sap.agrienergia.local    IN  A    192.168.11.244</code></pre>
+<pre><code>comandes.agrienergia.local    IN  A    192.168.11.244</code></pre>
 
 <div class="warning">
     <strong>Alternativa temporal:</strong> Si no es pot modificar el DNS corporatiu, afegir al fitxer <code>/etc/hosts</code> (Linux) o <code>C:\Windows\System32\drivers\etc\hosts</code> (Windows) de cada client SAP Fat Client:
-    <pre><code>192.168.11.244  comandes-sap.agrienergia.local</code></pre>
+    <pre><code>192.168.11.244  comandes.agrienergia.local</code></pre>
 </div>
 
 <h3>5.2 Tallafocs Ubuntu (UFW)</h3>
@@ -255,7 +286,7 @@ curl -k https://192.168.11.238:50000/b1s/v1/ -I</code></pre>
 sudo nano /etc/apache2/sites-available/comandes-venda-sap-ssl.conf</code></pre>
 
 <pre><code>&lt;VirtualHost *:443&gt;
-    ServerName comandes-sap.agrienergia.local
+    ServerName comandes.agrienergia.local
 
     SSLEngine on
     SSLCertificateFile      /etc/ssl/certs/agrienergia-local.crt
@@ -296,10 +327,10 @@ sudo systemctl reload apache2</code></pre>
 
 <p>i canviar-la per (segons si es fa HTTP o HTTPS):</p>
 <pre><code>// Amb HTTP simple
-"http://comandes-sap.agrienergia.local/api/afegir-palets/" + docEntry
+"http://comandes.agrienergia.local/api/afegir-palets/" + docEntry
 
 // Amb HTTPS
-"https://comandes-sap.agrienergia.local/api/afegir-palets/" + docEntry</code></pre>
+"https://comandes.agrienergia.local/api/afegir-palets/" + docEntry</code></pre>
 
 <h3>7.3 Actualitzar i verificar</h3>
 <ol>
@@ -320,13 +351,15 @@ sudo systemctl reload apache2</code></pre>
     <tr><th>#</th><th>Verificació</th><th>Comanda</th><th>Resultat esperat</th></tr>
     <tr><td>1</td><td>Servei Gunicorn actiu</td><td><code>systemctl status comandes-venda-sap</code></td><td>Active (running)</td></tr>
     <tr><td>2</td><td>Gunicorn escolta a 5002</td><td><code>ss -tln | grep 5002</code></td><td><code>127.0.0.1:5002</code></td></tr>
-    <tr><td>3</td><td>Apache VirtualHost carregat</td><td><code>apachectl -S | grep comandes-sap</code></td><td>ServerName visible</td></tr>
+    <tr><td>3</td><td>Apache VirtualHost carregat</td><td><code>apachectl -S | grep comandes.agrienergia</code></td><td>ServerName visible</td></tr>
     <tr><td>4</td><td>Endpoint respon via localhost</td><td><code>curl -X POST -s http://127.0.0.1:5002/api/afegir-palets/128</code></td><td>JSON <code>"ok":true</code></td></tr>
-    <tr><td>5</td><td>Endpoint respon via Apache</td><td><code>curl -X POST -s -H "Host: comandes-sap.agrienergia.local" http://127.0.0.1/api/afegir-palets/128</code></td><td>JSON <code>"ok":true</code></td></tr>
-    <tr><td>6</td><td>DNS resol correctament</td><td><code>nslookup comandes-sap.agrienergia.local</code></td><td>192.168.11.244</td></tr>
-    <tr><td>7</td><td>Accessible des de client Windows</td><td>(des del PC) <code>curl.exe -X POST http://comandes-sap.agrienergia.local/api/afegir-palets/128</code></td><td>JSON <code>"ok":true</code></td></tr>
+    <tr><td>5</td><td>Endpoint respon via Apache</td><td><code>curl -X POST -s -H "Host: comandes.agrienergia.local" http://127.0.0.1/api/afegir-palets/128</code></td><td>JSON <code>"ok":true</code></td></tr>
+    <tr><td>6</td><td>DNS resol correctament</td><td><code>nslookup comandes.agrienergia.local</code></td><td>192.168.11.244</td></tr>
+    <tr><td>7</td><td>Accessible des de client Windows</td><td>(des del PC) <code>curl.exe -X POST http://comandes.agrienergia.local/api/afegir-palets/128</code></td><td>JSON <code>"ok":true</code></td></tr>
     <tr><td>8</td><td>Botó B1UP funciona des de SAP</td><td>Obrir comanda de venda + clic "Calcular embalatges"</td><td>Missatge OK + línies palet visibles</td></tr>
-    <tr><td>9</td><td>Kais continua funcionant</td><td><code>systemctl status comandes-venda</code> + prova des del navegador</td><td>Sense afectacions</td></tr>
+    <tr><td>9</td><td>Kais respon al fallback</td><td><code>curl -sS -H "Host: comandes-kais.agrienergia.local" http://127.0.0.1/</code></td><td>HTML de Kais</td></tr>
+    <tr><td>10</td><td>Smoke load test concurrent</td><td><code>bash scripts/smoke_load_test.sh 127.0.0.1:5002 &lt;test&gt;</code></td><td>10× <code>HTTP 200</code>, temps &lt; 5 s</td></tr>
+    <tr><td>11</td><td>Logrotate configurat</td><td><code>sudo logrotate -d /etc/logrotate.d/comandes-venda-sap</code></td><td>Sense errors</td></tr>
 </table>
 
 <!-- 9. MANTENIMENT -->
@@ -353,7 +386,10 @@ sudo -u www-data git log --oneline -10             # llistar commits
 sudo -u www-data git reset --hard &lt;hash-commit&gt;    # rollback
 sudo systemctl restart comandes-venda-sap</code></pre>
 
-<h3>9.3 Comandes útils del servei</h3>
+<h3>9.3 Swap i rollback de la URL principal</h3>
+<p>Per moure <code>comandes.agrienergia.local</code> de Kais a SAP (o revertir), <strong>seguir el runbook operacional</strong> a <code>docs/runbook_swap_url_produccio.md</code>. Descriu els passos exactes al servidor durant la finestra de canvi (~10 min) i el procediment de rollback (&lt; 5 min).</p>
+
+<h3>9.4 Comandes útils del servei</h3>
 <table>
     <tr><th>Comanda</th><th>Acció</th></tr>
     <tr><td><code>sudo systemctl start comandes-venda-sap</code></td><td>Iniciar</td></tr>
@@ -377,27 +413,26 @@ sudo systemctl restart comandes-venda-sap</code></pre>
 </table>
 
 <h3>Rotació de logs</h3>
-<p>Els logs de Gunicorn creixen indefinidament. Configurar <code>logrotate</code>:</p>
-<pre><code>sudo nano /etc/logrotate.d/comandes-venda-sap</code></pre>
+<p>La rotació setmanal la configura automàticament <code>deploy.sh --first-install</code> copiant <code>deploy/logrotate/comandes-venda-sap</code> del repo a <code>/etc/logrotate.d/</code>. També se sincronitza en actualitzacions posteriors si el fitxer del repo canvia.</p>
 
+<p>Contingut actual:</p>
 <pre><code>/var/www/comandes-venda-sap/access.log
 /var/www/comandes-venda-sap/error.log {
     weekly
-    rotate 12
+    rotate 4
     compress
     delaycompress
     missingok
     notifempty
-    create 640 www-data www-data
-    sharedscripts
-    postrotate
-        systemctl reload comandes-venda-sap > /dev/null 2>&1 || true
-    endscript
+    copytruncate
 }</code></pre>
 
-<h3>Endpoint de monitoratge</h3>
-<p>L'aplicació exposa un endpoint per verificar l'estat del worker sync (si està habilitat):</p>
-<pre><code>curl -s http://127.0.0.1:5002/api/admin/sync-status</code></pre>
+<p>Verificar en sec:</p>
+<pre><code>sudo logrotate -d /etc/logrotate.d/comandes-venda-sap</code></pre>
+
+<div class="info">
+    <strong>Logs d'Apache</strong> (<code>/var/log/apache2/comandes-venda-sap-*.log</code>) els gestiona la configuració global <code>/etc/logrotate.d/apache2</code> — no cal fer res.
+</div>
 
 <!-- 11. TROUBLESHOOTING -->
 <h2 id="troubleshooting">11. Resolució de problemes</h2>

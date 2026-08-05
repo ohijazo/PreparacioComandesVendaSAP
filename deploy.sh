@@ -88,8 +88,18 @@ if [ "$1" == "--first-install" ]; then
         warn "Si Kais és en un altre path, edita KAIS_APP_PATH al .env manualment."
     fi
 
-    # Crear servei systemd
-    info "Creant servei systemd..."
+    # Instal·lar logrotate (rotació setmanal dels logs de Gunicorn)
+    info "Instal·lant configuració logrotate..."
+    cp "$APP_DIR/deploy/logrotate/comandes-venda-sap" /etc/logrotate.d/comandes-venda-sap
+    chmod 644 /etc/logrotate.d/comandes-venda-sap
+
+    # Crear servei systemd (Gunicorn amb worker-class gthread)
+    #
+    # Justificació dels workers: POST /api/afegir-palets/<DocEntry> fa múltiples
+    # crides HTTP bloquejants a Service Layer (patró GET-modify-PATCH). Amb 2
+    # sync workers, 3 usuaris B1UP concurrents saturarien; amb gthread 2×4
+    # obtenim 8 slots concurrents amb un footprint similar de memòria.
+    info "Creant servei systemd (Gunicorn)..."
     cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
 [Unit]
 Description=Motor Preparació Comandes Venda (variant SAP)
@@ -98,11 +108,21 @@ After=network.target
 [Service]
 Type=simple
 User=$APP_USER
+Group=$APP_USER
 WorkingDirectory=$APP_DIR
 Environment=KAIS_APP_PATH=$KAIS_PATH
 Environment=PORT=$APP_PORT
 EnvironmentFile=$APP_DIR/.env
-ExecStart=$VENV_DIR/bin/python app.py
+ExecStart=$VENV_DIR/bin/gunicorn \\
+    --bind 127.0.0.1:$APP_PORT \\
+    --worker-class gthread \\
+    --workers 2 \\
+    --threads 4 \\
+    --timeout 180 \\
+    --graceful-timeout 30 \\
+    --access-logfile $APP_DIR/access.log \\
+    --error-logfile $APP_DIR/error.log \\
+    wsgi:app
 Restart=always
 RestartSec=5
 
@@ -122,11 +142,17 @@ UNIT
     info "2) Assegura permisos: sudo chown $APP_USER:$APP_USER $APP_DIR/.env && sudo chmod 600 $APP_DIR/.env"
     info "3) Arrenca el servei: sudo systemctl start $SERVICE_NAME"
     info "4) Verifica: sudo systemctl status $SERVICE_NAME"
-    info "5) Prova endpoint: curl -X POST http://localhost:$APP_PORT/api/afegir-palets/<DocEntry>"
+    info "5) Prova endpoint (localhost, port intern de Gunicorn):"
+    info "     curl -X POST http://127.0.0.1:$APP_PORT/api/afegir-palets/<DocEntry>"
     info ""
     info "Comandes útils:"
     info "  systemctl {start|stop|restart|status} $SERVICE_NAME"
     info "  journalctl -u $SERVICE_NAME -f"
+    info "  tail -f $APP_DIR/access.log $APP_DIR/error.log"
+    info "  bash $APP_DIR/scripts/smoke_load_test.sh 127.0.0.1:$APP_PORT <DocEntry>"
+    info ""
+    info "Swap de la URL comandes.agrienergia.local:"
+    info "  Vegeu docs/runbook_swap_url_produccio.md"
     exit 0
 fi
 
@@ -169,6 +195,13 @@ if $GIT_AS_APP diff "$OLD_COMMIT" "$NEW_COMMIT" -- requirements.txt | grep -q .;
     "$VENV_DIR/bin/pip" install -r requirements.txt -q
 else
     info "Dependències sense canvis"
+fi
+
+# Sincronitzar logrotate si el fitxer del repo ha canviat
+if $GIT_AS_APP diff "$OLD_COMMIT" "$NEW_COMMIT" -- deploy/logrotate/comandes-venda-sap | grep -q .; then
+    info "Actualitzant configuració logrotate..."
+    cp "$APP_DIR/deploy/logrotate/comandes-venda-sap" /etc/logrotate.d/comandes-venda-sap
+    chmod 644 /etc/logrotate.d/comandes-venda-sap
 fi
 
 # Permisos
