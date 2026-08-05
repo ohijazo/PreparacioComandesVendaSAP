@@ -56,12 +56,13 @@ def _cache_set(key, data):
 
 
 def _cached_query(key, compute_fn):
-    """Cache amb single-flight: evita queries SQL concurrents duplicades.
+    """Cache amb single-flight best-effort: evita queries SQL concurrents duplicades.
 
     Si el cache és vàlid, retorna directament.
-    Si no, adquireix el lock (1 sol thread executa la query),
-    comprova el cache de nou (l'altre thread pot haver-lo omplert),
-    i només llavors executa compute_fn.
+    Si no, intenta adquirir el lock amb timeout curt. Si un altre thread ja
+    està calculant i acaba a temps, aprofitem la seva cache. Si no (lock
+    penjat per pyodbc bloquejat, thread mort, etc.), executem la nostra
+    query sense esperar — millor duplicar treball que bloquejar tot el pool.
     """
     cached = _cache_get(key)
     if cached is not None:
@@ -69,7 +70,8 @@ def _cached_query(key, compute_fn):
     lock = _query_locks.get(key)
     if lock is None:
         return compute_fn()
-    with lock:
+    acquired = lock.acquire(timeout=3)
+    try:
         # Double-check: un altre thread pot haver omplert el cache
         cached = _cache_get(key)
         if cached is not None:
@@ -77,6 +79,9 @@ def _cached_query(key, compute_fn):
         result = compute_fn()
         _cache_set(key, result)
         return result
+    finally:
+        if acquired:
+            lock.release()
 
 # ============================================================
 # Logging
@@ -915,4 +920,4 @@ _warmup_cache()
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5002"))
     logger.info("Iniciant Motor de Preparació de Comandes (SAP) al port %d", port)
-    app.run(debug=False, host="0.0.0.0", port=port)
+    app.run(debug=False, host="0.0.0.0", port=port, threaded=True)

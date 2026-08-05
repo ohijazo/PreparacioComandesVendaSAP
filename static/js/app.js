@@ -223,8 +223,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function _resoldreSalKey(pediNum) {
         if (!_allComandes) return null;
         const match = _allComandes.find(c => {
-            const numVis = c.num_pedido_kais || c.pedi_numero;
-            const key = c.pedi_serie ? `${c.pedi_serie}/${numVis}` : numVis;
+            const key = c.pedi_serie ? `${c.pedi_serie}/${c.pedi_numero}` : c.pedi_numero;
             return key === pediNum;
         });
         if (!match) return null;
@@ -429,7 +428,7 @@ document.addEventListener("DOMContentLoaded", () => {
         btnCopiar.addEventListener("click", () => {
             if (!lastResultData) return;
             const d = lastResultData;
-            const serie = d.comanda ? (d.comanda.pedi_serie ? `${d.comanda.pedi_serie}/${d.comanda.num_pedido_kais || d.comanda.pedi_numero}` : d.comanda.pedi_numero) : "-";
+            const serie = d.comanda ? (d.comanda.pedi_serie ? `${d.comanda.pedi_serie}/${d.comanda.pedi_numero}` : d.comanda.pedi_numero) : "-";
             const client = d.direccio ? (d.direccio.adr_nom || "") : "";
             const sacs = d.resum ? d.resum.total_sacs : 0;
             const palets = d.resum ? d.resum.total_palets : 0;
@@ -447,8 +446,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Breadcrumb
         const bcComanda = document.getElementById("bc-comanda");
         if (data.comanda) {
-            const kaisNum = data.comanda.num_pedido_kais || data.comanda.pedi_numero;
-            bcComanda.textContent = `${data.comanda.pedi_serie}/${kaisNum}`;
+            bcComanda.textContent = `${data.comanda.pedi_serie}/${data.comanda.pedi_numero}`;
         } else {
             bcComanda.textContent = "-";
         }
@@ -487,9 +485,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Metadades compactes
         if (data.comanda) {
             const c = data.comanda;
-            // Mostrar el número KAIS (el que l'usuari veu al programa)
-            const kaisNum = c.num_pedido_kais || c.pedi_numero;
-            const numDisplay = `${c.pedi_serie}/${kaisNum}`;
+            const numDisplay = `${c.pedi_serie}/${c.pedi_numero}`;
             document.getElementById("res-pedi-num").textContent = numDisplay;
             document.getElementById("res-cli-codi").textContent = c.cli_codi || "-";
             document.getElementById("res-pedi-dire").textContent = c.pedi_dire || "-";
@@ -1122,11 +1118,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // --- Ultimes comandes ---
     function _crearFilaComanda(c) {
-        // Número visible: preferir el número de pedido KAIS si existeix
-        const numVisible = c.num_pedido_kais || c.pedi_numero;
+        // Número visible: DocNum SAP (pedi_numero). NumAtCard queda al tooltip.
         const serieNum = c.pedi_serie
-            ? `${c.pedi_serie}/${numVisible}`
-            : numVisible;
+            ? `${c.pedi_serie}/${c.pedi_numero}`
+            : c.pedi_numero;
         // sal_codigo real + cpa_albara per la crida API
         const salNum = c.sal_codigo
             ? `${c.sal_codigo}/${c.pedi_numero}`
@@ -1142,7 +1137,7 @@ document.addEventListener("DOMContentLoaded", () => {
         tr.dataset.almacen = c.almacen || "";
         tr.dataset.numPedidoKais = c.num_pedido_kais || "";
         tr.innerHTML = `
-            <td class="art-code">${escapeHtml(serieNum)}</td>
+            <td class="art-code"${c.num_pedido_kais ? ` title="Ref. client: ${escapeHtml(c.num_pedido_kais)}"` : ""}>${escapeHtml(serieNum)}</td>
             <td>${escapeHtml(c.pedi_fech)}</td>
             <td>${escapeHtml(c.data_servir || "")}</td>
             <td>${escapeHtml(c.cli_nom)}</td>
@@ -1162,8 +1157,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function _comandaKey(c) {
-        const num = c.num_pedido_kais || c.pedi_numero;
-        return `${c.pedi_serie}/${num}`;
+        return `${c.pedi_serie}/${c.pedi_numero}`;
     }
 
     function _fingerComanda(c) {
@@ -1208,8 +1202,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const newFinger = _fingerComanda(c);
                 if (oldFinger !== newFinger) {
                     // Dades estàtiques canviades → recalcular estat
-                    const numVis = c.num_pedido_kais || c.pedi_numero;
-                    const serieNum = `${c.pedi_serie}/${numVis}`;
+                    const serieNum = `${c.pedi_serie}/${c.pedi_numero}`;
                     existing.querySelectorAll("td")[0].textContent = serieNum;
                     existing.querySelectorAll("td")[1].textContent = c.pedi_fech;
                     existing.querySelectorAll("td")[2].textContent = c.data_servir || "";
@@ -1507,60 +1500,16 @@ document.addEventListener("DOMContentLoaded", () => {
         const header = document.querySelector("#empty-state .card-header span");
         const originalText = header ? header.textContent : "";
 
-        // Batch: enviar totes les comandes en lots de MAX_BATCH al servidor
-        const MAX_BATCH = 20;
+        // NOTA: /api/calcular-batch (POST) queda bloquejat per Windows Defender
+        // en aquest entorn local. Fem crides GET individuals (/api/calcular/...)
+        // amb concurrència limitada. A producció Ubuntu el POST batch funciona
+        // sense problema — allà es podria restaurar per rendiment.
         let completats = 0;
-
-        for (let i = 0; i < pendentsServer.length; i += MAX_BATCH) {
-            const lot = pendentsServer.slice(i, i + MAX_BATCH);
-            // Construir les claus sal_codigo per l'API
-            const apiKeys = lot.map(pn => {
-                const row = tbody.querySelector(`tr[data-pedi-key="${CSS.escape(pn)}"]`);
-                return row ? (row.dataset.salKey || pn) : pn;
-            });
-
-            try {
-                const resp = await fetch("/api/calcular-batch", {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({keys: apiKeys}),
-                });
-                if (resp.ok) {
-                    const batchData = await resp.json();
-                    if (batchData.ok && batchData.resultats) {
-                        // Aplicar resultats a cada fila
-                        for (let j = 0; j < lot.length; j++) {
-                            const pediKey = lot[j];
-                            const apiKey = apiKeys[j];
-                            const data = batchData.resultats[apiKey];
-                            if (data) {
-                                const row = tbody.querySelector(`tr[data-pedi-key="${CSS.escape(pediKey)}"]`);
-                                if (row) {
-                                    _aplicarResultatAFila(row, pediKey, data);
-                                    if (data.ok) {
-                                        const finger = _getRowFingerprint(row);
-                                        _setCachedResult(pediKey, finger, data);
-                                    }
-                                }
-                            }
-                            _estatsCalculats.add(pediKey);
-                            completats++;
-                        }
-                    }
-                } else {
-                    // Fallback: si el batch falla, calcular individualment
-                    for (const pn of lot) {
-                        await processarComandaEstat(pn);
-                        completats++;
-                    }
-                }
-            } catch (e) {
-                // Fallback a individual
-                for (const pn of lot) {
-                    await processarComandaEstat(pn);
-                    completats++;
-                }
-            }
+        const MAX_CONCURRENT_GET = 3;
+        for (let i = 0; i < pendentsServer.length; i += MAX_CONCURRENT_GET) {
+            const lot = pendentsServer.slice(i, i + MAX_CONCURRENT_GET);
+            await Promise.all(lot.map(pn => processarComandaEstat(pn)));
+            completats += lot.length;
             if (header) header.textContent = `Calculant ${completats}/${pendentsServer.length}...`;
         }
 
@@ -1851,19 +1800,21 @@ document.addEventListener("DOMContentLoaded", () => {
         const rows = document.querySelectorAll("#ultimes-body .ultimes-row");
         const teCerca = textFiltre || estatFiltre || tipusDescFiltre || serieFiltre || magatzemFiltre || dataFiltre || clientFiltre;
 
-        // Calcular rang de dates
-        let dataMin = null;
+        // Calcular rang de dates [dataMin, dataMax] inclusiu.
+        // "Avui" = només dia d'avui. "Ahir" = només dia d'ahir. "Setmana" = últims 7 dies.
+        let dataMin = null, dataMax = null;
         if (dataFiltre) {
             const avui = new Date();
             avui.setHours(0, 0, 0, 0);
             if (dataFiltre === "avui") {
                 dataMin = avui;
+                dataMax = avui;
             } else if (dataFiltre === "ahir") {
-                dataMin = new Date(avui);
-                dataMin.setDate(dataMin.getDate() - 1);
+                dataMin = new Date(avui); dataMin.setDate(dataMin.getDate() - 1);
+                dataMax = dataMin;
             } else if (dataFiltre === "setmana") {
-                dataMin = new Date(avui);
-                dataMin.setDate(dataMin.getDate() - 7);
+                dataMin = new Date(avui); dataMin.setDate(dataMin.getDate() - 7);
+                dataMax = avui;
             }
         }
 
@@ -1887,10 +1838,10 @@ document.addEventListener("DOMContentLoaded", () => {
             if (magatzemFiltre && !_selectedMagatzems.has(row.dataset.almacen || "")) match = false;
             if (clientFiltre && !_selectedClients.has(row.dataset.client || "")) match = false;
 
-            // Filtre per data
+            // Filtre per data (rang inclusiu [dataMin, dataMax])
             if (dataMin && match) {
                 const rowDate = _parseDate(row.dataset.date || "");
-                if (!rowDate || rowDate < dataMin) match = false;
+                if (!rowDate || rowDate < dataMin || rowDate > dataMax) match = false;
             }
 
             if (match) matchCount++;
@@ -2058,7 +2009,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function _construirBodyHtmlPreview(data) {
         const c = data.comanda || {};
-        const pedi = `${c.pedi_serie || "-"}/${c.num_pedido_kais || c.pedi_numero || "-"}`;
+        const pedi = `${c.pedi_serie || "-"}/${c.pedi_numero || "-"}`;
         const cliCodi = c.cli_codi || "-";
         const cliNom = c.cli_nom || "";
         const dataServir = c.data_servir || "-";
