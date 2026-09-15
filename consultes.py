@@ -59,6 +59,7 @@ import threading as _threading
 import time as _time
 from collections import OrderedDict as _OrderedDict
 from collections import deque as _deque
+from copy import copy as _copy
 from datetime import date, datetime
 
 import pyodbc
@@ -336,18 +337,37 @@ _PALET_COMANDA_CACHE_TTL = 600
 _noms_magatzems_cache: dict | None = None
 
 
-def invalidar_caches_comanda(sal_codigo: str, cpa_albara: str) -> None:
-    """Buida tots els caches relacionats amb una comanda."""
+def invalidar_caches_comanda(sal_codigo: str, cpa_albara: str,
+                             cli_codi: str | None = None,
+                             adr_codi: str | None = None) -> None:
+    """Buida tots els caches relacionats amb una comanda.
+
+    `cli_codi`/`adr_codi` són opcionals: si es passen, s'invaliden també els
+    caches de direcció i de palet del client encara que la comanda no estigui
+    al cache (cas típic del botó SAP, que invalida abans del primer càlcul).
+    Sense ells, la direcció només es pot localitzar a través del cache de
+    comanda.
+    """
     sal = sal_codigo.strip()
     alb = cpa_albara.strip()
+
+    dir_keys: set = set()
+    if cli_codi is not None:
+        dir_keys.add((cli_codi, adr_codi or ""))
+        dir_keys.add((cli_codi, adr_codi))
 
     # Direcció → cal el cli_codi/adr_codi que està al cache de comanda
     for key, (_, cmd) in list(_comanda_cache.items()):
         if key[0] == sal and key[1] == alb:
-            dir_key = (cmd.cli_codi, cmd.pedi_dire)
-            if dir_key in _direccio_cache:
-                del _direccio_cache[dir_key]
+            dir_keys.add((cmd.cli_codi, cmd.pedi_dire))
             break
+
+    for dir_key in dir_keys:
+        _direccio_cache.pop(dir_key, None)
+        # `_palet_client_cache` cacheja també els resultats negatius (cap
+        # tarifa trobada): sense purgar-lo, configurar una tarifa nova a SAP
+        # no té efecte fins passats 10 min.
+        _palet_client_cache.pop(dir_key, None)
 
     for k in [k for k in _comanda_cache if k[0] == sal and k[1] == alb]:
         del _comanda_cache[k]
@@ -572,7 +592,10 @@ def obtenir_direccio(conn, cli_codi: str, adr_codi: str) -> Direccio:
         ts, cached = _direccio_cache[cache_key]
         if (_time.time() - ts) < 600:
             _direccio_cache.move_to_end(cache_key)
-            return cached
+            # Còpia: `motor.py` escriu `tipus_descarrega` a l'objecte quan
+            # l'autodetecta, i sense còpia contaminaria el cache per a totes
+            # les comandes d'aquest (client, direcció) durant 10 min.
+            return _copy(cached)
 
     sql = """
         SELECT TOP 1
@@ -627,7 +650,7 @@ def obtenir_direccio(conn, cli_codi: str, adr_codi: str) -> Direccio:
     elif len(_direccio_cache) >= _DIRECCIO_CACHE_MAX:
         _direccio_cache.popitem(last=False)
     _direccio_cache[cache_key] = (_time.time(), direccio)
-    return direccio
+    return _copy(direccio)
 
 
 # ============================================================
@@ -644,8 +667,10 @@ def obtenir_palet_client(cli_codi: str, adr_codi: str | None = None, conn=None) 
 
     Estrategia:
     - Filtra tarifes actives (U_SEIActivo='Y') del CardCode.
-    - Prioritza tarifa que coincideixi amb la direcció exacta (`U_SEIDireccion`
-      conté `<adr_codi>-<nom>`).
+    - Prioritza la tarifa de la direcció d'enviament de la comanda:
+      `U_SEIDireccion` conté exactament el mateix codi que `ORDR.ShipToCode`
+      (ex. `000-NUTREX PINSOS, SL-BANYOLES`), per tant la comparació és
+      d'igualtat. Si cap tarifa és d'aquesta direcció, guanya la més recent.
     - Dins la tarifa triada, agafa la primera línia amb ItemName que comença per 'PALET'.
     """
     cache_key = (cli_codi, adr_codi or "")
@@ -671,11 +696,11 @@ def obtenir_palet_client(cli_codi: str, adr_codi: str | None = None, conn=None) 
               AND UPPER(RTRIM(d.U_SEIItemName)) LIKE 'PALET%'
               AND (d.U_SEIFechaFin IS NULL OR d.U_SEIFechaFin >= GETDATE())
             ORDER BY
-                CASE WHEN ? IS NOT NULL AND c.U_SEIDireccion LIKE ? THEN 0 ELSE 1 END,
+                CASE WHEN ? IS NOT NULL AND RTRIM(c.U_SEIDireccion) = ? THEN 0 ELSE 1 END,
                 c.DocEntry DESC
         """
-        adr_pattern = f"{adr_codi}-%" if adr_codi else None
-        r = conn.execute(sql, cli_codi, adr_codi, adr_pattern).fetchone()
+        adr = (adr_codi or "").strip() or None
+        r = conn.execute(sql, cli_codi, adr, adr).fetchone()
     finally:
         if _own_conn:
             conn.close()
@@ -715,7 +740,8 @@ def obtenir_preus_palets_client(
 
     Estratègia (equivalent a `obtenir_palet_client`):
       1. Filtrar tarifes actives (U_SEIActivo='Y', Canceled<>'Y').
-      2. Prioritzar tarifa amb `U_SEIDireccion LIKE '<adr_codi>-%'` si es passa.
+      2. Prioritzar la tarifa de la direcció d'enviament (`U_SEIDireccion` =
+         `ORDR.ShipToCode`) si es passa `adr_codi`.
       3. Retornar totes les línies PALET vigents (U_SEIFechaFin NULL o futur).
 
     Si `conn` es passa, es reutilitza (evita deadlock amb el semàfor).
@@ -742,13 +768,13 @@ def obtenir_preus_palets_client(
                     AND c2.U_SEIActivo = 'Y'
                     AND c2.Canceled <> 'Y'
                   ORDER BY
-                      CASE WHEN ? IS NOT NULL AND c2.U_SEIDireccion LIKE ? THEN 0 ELSE 1 END,
+                      CASE WHEN ? IS NOT NULL AND RTRIM(c2.U_SEIDireccion) = ? THEN 0 ELSE 1 END,
                       c2.DocEntry DESC
               )
         """
-        adr_pattern = f"{adr_codi}-%" if adr_codi else None
+        adr = (adr_codi or "").strip() or None
         rows = conn.execute(
-            sql, cli_codi, cli_codi, adr_codi, adr_pattern
+            sql, cli_codi, cli_codi, adr, adr
         ).fetchall()
     finally:
         if _own_conn:
@@ -764,10 +790,54 @@ def obtenir_preus_palets_client(
 
 
 # ============================================================
+# obtenir_articles_palet(): catàleg d'articles del grup PALETS
+# ============================================================
+# Grup d'articles de SAP que conté els palets (OITM.ItmsGrpCod). Per defecte
+# 152 = "070002-PALETS": 01000, 01010 (BASE PALET), 01022, 01030, 01040,
+# 01060, 01061, 01090, 01100, 01110, 01120, 01130, 01140.
+GRUP_ARTICLES_PALET = int(os.environ.get("SAP_ITM_GRP_PALETS", "152"))
+
+_articles_palet_cache: set[str] | None = None
+
+
+def obtenir_articles_palet(conn) -> set[str]:
+    """Retorna els ItemCodes del grup d'articles palet.
+
+    Serveix perquè el motor pugui reconèixer com a "seves" totes les línies de
+    palet de la comanda — també les que l'operari ha escrit a mà, que no porten
+    el marcador `U_FCAfegit` i abans es duplicaven a cada recàlcul.
+
+    El catàleg és estable (13 articles), per això es cacheja indefinidament en
+    memòria; reiniciar el procés el refresca.
+    """
+    global _articles_palet_cache
+    if _articles_palet_cache is not None:
+        return _articles_palet_cache
+
+    rows = conn.execute(
+        "SELECT RTRIM(ItemCode) AS ItemCode FROM OITM WITH (NOLOCK) WHERE ItmsGrpCod = ?",
+        GRUP_ARTICLES_PALET,
+    ).fetchall()
+    codis = {(r.ItemCode or "").strip() for r in rows if (r.ItemCode or "").strip()}
+    if not codis:
+        logger.warning(
+            "Cap article al grup de palets ItmsGrpCod=%s — revisa SAP_ITM_GRP_PALETS",
+            GRUP_ARTICLES_PALET,
+        )
+    _articles_palet_cache = codis
+    return codis
+
+
+# ============================================================
 # obtenir_palet_comanda(): línia de palet inclosa a la comanda
 # ============================================================
 def obtenir_palet_comanda(conn, sal_codigo: str, cpa_albara: str, eje_ejercicio: str | None = None) -> dict | None:
-    """Detecta la línia de palet (UoM='UNI' amb nom que conté 'PALET') dins la comanda."""
+    """Detecta la línia de palet (UoM='UNI' amb nom que conté 'PALET') dins la comanda.
+
+    S'exclouen les línies que hi ha afegit el propi motor (`U_FCAfegit='S'`):
+    si no, la segona execució del botó llegiria com a "palet demanat pel
+    client" el palet que ell mateix havia inserit a la primera.
+    """
     sal = sal_codigo.strip()
     alb = cpa_albara.strip()
     cache_key = (eje_ejercicio or "", sal, alb)
@@ -792,6 +862,8 @@ def obtenir_palet_comanda(conn, sal_codigo: str, cpa_albara: str, eje_ejercicio:
         WHERE h.Series = ? AND h.DocNum = ?
           AND i.SalUnitMsr = 'UNI'
           AND UPPER(RTRIM(l.Dscription)) LIKE '%PALET%'
+          AND (l.U_FCAfegit IS NULL OR l.U_FCAfegit <> 'S')
+        ORDER BY l.LineNum
     """
     row = conn.execute(sql, series, docnum).fetchone()
     result = {"art_codi": row.art_codi, "art_descrip": row.art_descrip} if row else None
@@ -936,13 +1008,16 @@ def obtenir_metadata_ordr_per_doc_entry(conn, doc_entry: int) -> dict:
 
     Retorna dict amb: series, docnum, card_code, addr, doc_status, whs_code.
     `whs_code` pot ser None si la comanda encara no té cap línia.
-    `addr` és Address2 (codi direcció d'enviament); pot ser None/buit.
+    `addr` és `ShipToCode` — el **codi** de la direcció d'enviament, el mateix
+    que fa servir `obtenir_comanda()` i el que cal per casar amb les tarifes
+    `@SEITARIFACAB.U_SEIDireccion`. (`Address2` és l'adreça formatada en text,
+    no serveix com a clau.) Pot ser None/buit.
 
     Raises ValueError si la comanda no existeix.
     """
     sql = """
         SELECT h.Series, h.DocNum, RTRIM(h.CardCode) AS CardCode,
-               RTRIM(h.Address2) AS Address2, h.DocStatus,
+               RTRIM(h.ShipToCode) AS ShipToCode, h.DocStatus,
                (SELECT TOP 1 RTRIM(l.WhsCode) FROM RDR1 l WITH (NOLOCK)
                  WHERE l.DocEntry = h.DocEntry AND l.WhsCode IS NOT NULL
                  ORDER BY l.LineNum) AS WhsCode
@@ -956,7 +1031,7 @@ def obtenir_metadata_ordr_per_doc_entry(conn, doc_entry: int) -> dict:
         "series": str(int(row.Series)),
         "docnum": str(int(row.DocNum)),
         "card_code": row.CardCode or "",
-        "addr": (row.Address2 or "").strip() or None,
+        "addr": (row.ShipToCode or "").strip() or None,
         "doc_status": row.DocStatus or "",
         "whs_code": row.WhsCode or None,
     }

@@ -35,6 +35,34 @@ Al clicar, executa un petit codi C# que:
 4. Al camp gran de codi, **enganxa el contingut de `docs/b1up_uf038_calcular_embalatges.cs`** (versionat al repo).
 5. **Actualizar**.
 
+### Actualitzar el codi d'una UF que ja existeix
+
+Quan es canvia el codi al repo cal tornar-lo a enganxar a mà — B1UP no llegeix
+del Git. Ordre correcte:
+
+1. **Primer desplega el backend** (`./deploy.sh` al servidor Ubuntu). El codi
+   nou del botó ensenya camps que només retorna la versió nova de l'endpoint.
+2. B1UP Configurator → **Función → Función Universal**, cerca `UF-038`.
+3. Selecciona **tot** el codi del quadre (`Ctrl+A`) i esborra'l. Enganxar sobre
+   el codi antic sense esborrar deixa restes i el codi no compila.
+4. Enganxa el contingut sencer de `docs/b1up_uf038_calcular_embalatges.cs`
+   (els comentaris `//` de dalt també, són part del fitxer).
+5. ⚠️ **Comprova la línia de la URL.** El fitxer del repo apunta al servidor
+   Ubuntu de producció (`http://192.168.11.244:5002`). Si l'entorn on
+   enganxes fa servir un altre amfitrió, ajusta **només** aquesta línia.
+6. **Actualizar**.
+7. Tanca i torna a obrir el Fat Client (B1UP cacheja el codi de les UF).
+8. Verifica que el que ha quedat a la base de dades és el que volies:
+
+   ```bash
+   python scripts/verificar_uf038.py
+   ```
+
+   Compara el codi guardat a `@BOY_41_FUNCTIONS` amb el fitxer del repo
+   ignorant comentaris i espais. Ha de dir `IDENTICS`. Si diu `DIFEREIXEN`,
+   ensenya el diff: o l'enganxada no ha arribat, o algú ha tocat el codi
+   directament a B1UP sense passar pel repo.
+
 ### Punts clau del codi
 
 - Usa els paràmetres **`application`** i **`form`** (locals a la signatura
@@ -70,9 +98,15 @@ Detall complet dels gotchas: `tasks/lessons.md` L5.
 1. Obre una comanda de venda existent al Fat Client (ex: `26600128`).
 2. Ha d'aparèixer el botó **"Calcular embalatges"** al toolbar del form.
 3. Clica'l.
-4. Espera 2-5s. Al StatusBar (peu del SAP) surt:
-   `Embalatges recalculats i comanda actualitzada.`
+4. Espera 2-5s. Al StatusBar (peu del SAP) surt el resum real del càlcul:
+   `CALCULAT · 2 palets · 80 sacs · +0 noves / ~1 actualitzades / -1 tancades`
 5. Les línies palet apareixen automàticament a la graella del formulari.
+6. Si el motor té alguna cosa a dir (estat diferent de `CALCULAT`, avisos a la
+   traçabilitat, o 0 palets), en lloc del StatusBar surt un **MessageBox** amb
+   el resum i els missatges del motor.
+7. Torna a clicar el botó sense canviar res: ha de sortir `+0 noves /
+   ~N actualitzades / -0 tancades`. Si surt `+N noves` a cada clic, les línies
+   palet s'estan duplicant — mira `tasks/lessons.md` L9.
 
 ## Pas 4 — Exportar la configuració
 
@@ -113,13 +147,27 @@ desar-la primer.
 ### La comanda diu "no processable" (NO_CALCULABLE)
 
 - Només articles `GRA`/`UNI`, o falta configuració a l'article a SAP.
-- Comportament esperat: no s'afegeix res, l'operari veu el motiu al popup.
+- L'endpoint retorna HTTP 400 i no afegeix res; el botó ensenya el motiu
+  (cos de la resposta) al MessageBox.
 
 ### SOTA_MINIM — sí calcula i afegeix
 
 Tot i estar sota mínim, el motor calcula la proposta d'embalatges (mateix
-comportament que Kais) i les línies s'afegeixen. El popup mostra el
-missatge de RF2 STOP com a informació.
+comportament que Kais) i les línies s'afegeixen. Com que l'estat no és
+`CALCULAT`, el botó ho ensenya amb MessageBox incloent el missatge de RF2 STOP.
+
+### L'operari havia escrit el palet a mà i ara la seva línia surt tancada
+
+Comportament volgut des del fix de 2026-09-15: el motor és propietari de totes
+les línies d'articles del grup PALETS. Si l'article coincideix amb el que
+calcula, actualitza la línia manual; si no, la tanca i afegeix la correcta.
+Abans se'n creava una de nova i el palet quedava duplicat (`tasks/lessons.md` L9).
+
+### El botó diu "recalculat" però la quantitat no canvia
+
+Ja no hauria de passar: l'endpoint invalida els caches de `consultes.py` abans
+de calcular. Si torna a passar, comprova que el servidor Ubuntu té desplegada
+la versió del fix (`tasks/fase2_progress.md` §2.7).
 
 ### Les línies palet velles queden en gris
 
@@ -132,6 +180,6 @@ líneas cerradas**.
 
 ---
 
-**Data actualització**: 2026-07-29.
+**Data actualització**: 2026-09-15.
 **Relacionat amb**: `docs/creacio_udf_rdr1_afegit.md`,
 `docs/b1up_uf038_calcular_embalatges.cs`, `tasks/lessons.md` (L1-L5).

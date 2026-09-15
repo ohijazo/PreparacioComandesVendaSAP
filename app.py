@@ -9,7 +9,7 @@ import time
 import threading
 from flask import Flask, render_template, jsonify, request, Response
 from motor import calcular_embalatges, calcular_embalatges_agrupats, validar_dades_mestres
-from consultes import connectar, obtenir_ultimes_comandes, obtenir_comanda_per_numero, obtenir_recompte_comandes, obtenir_magatzems_from_comandes, obtenir_noms_magatzems, obtenir_titols_infoanex, obtenir_titols_infoanex_clienvio, obtenir_metadata_ordr_per_doc_entry, obtenir_preus_palets_client
+from consultes import connectar, obtenir_ultimes_comandes, obtenir_comanda_per_numero, obtenir_recompte_comandes, obtenir_magatzems_from_comandes, obtenir_noms_magatzems, obtenir_titols_infoanex, obtenir_titols_infoanex_clienvio, obtenir_metadata_ordr_per_doc_entry, obtenir_preus_palets_client, obtenir_articles_palet, invalidar_caches_comanda
 from models import Estat  # compartit via _bootstrap
 from mailer import enviar_correu_autoritzacio, LLINDAR_KG_AUTORITZACIO, obtenir_defaults_destinataris  # compartit via _bootstrap
 from sap_service_layer import SLClient, SLError
@@ -97,6 +97,10 @@ logging.basicConfig(
 logger = logging.getLogger("motor")
 
 app = Flask(__name__)
+# Els missatges del motor porten accents i el botó B1UP els ensenya tal qual
+# al MessageBox de SAP; sense això arribarien escapats com a seqüències
+# Unicode dins el JSON.
+app.json.ensure_ascii = False
 
 
 # ============================================================
@@ -257,12 +261,20 @@ def ajuda():
     return render_template("ajuda.html")
 
 
+def _calendari_url():
+    return os.environ.get("CALENDARI_URL", "").strip()
+
+
+@app.context_processor
+def _inject_calendari_url():
+    # Fa {{ calendari_url }} accessible a qualsevol template sense
+    # haver de passar-lo a cada render_template.
+    return {"calendari_url": _calendari_url()}
+
+
 @app.route("/calendari")
 def calendari():
-    calendari_url = os.environ.get(
-        "CALENDARI_URL", "http://agrupacions.agrienergia.local/calendari"
-    )
-    return render_template("calendari.html", calendari_url=calendari_url)
+    return render_template("calendari.html", calendari_url=_calendari_url())
 
 
 @app.route("/api/buscar/<path:serie_numero>")
@@ -503,16 +515,24 @@ def api_afegir_palets(doc_entry: int):
     passa el DocEntry actual i aquest endpoint:
       1. Cerca (Series, DocNum, WhsCode) a ORDR/RDR1.
       2. Executa el motor RF1-RF14 amb dades de SAP.
-      3. Filtra els palets físics (`es_fisic=True`) i genera línies OData.
-      4. Substitueix netament les línies palet velles (marcades amb
-         U_FCAfegit='Y') per les noves (patró GET-modify-PATCH via SL).
+      3. Genera les línies palet OData a partir del resultat.
+      4. Sincronitza les línies palet de la comanda amb les calculades
+         (patró GET-modify-PATCH via SL). Compten com a línies del motor
+         tant les marcades amb `U_FCAfegit='S'` com qualsevol línia oberta
+         d'un article del grup PALETS (les que escriu l'operari a mà): així
+         es reciclen en lloc de duplicar-se.
+
+    Les dades de la comanda es rellegeixen sempre de SAP (s'invaliden els
+    caches de `consultes.py`) — si no, editar la comanda i tornar a clicar el
+    botó dins dels 10 min de TTL recalculava amb les línies velles.
 
     Query params:
-      forcar=1  → invalidar cache del motor abans de calcular.
+      forcar=1  → saltar els STOP de les regles (RF1/RF2/RF4), com a la web.
+                  No té res a veure amb la frescor de les dades.
 
     Retorna JSON amb estructura:
       { ok, doc_entry, estat, linies_afegides, linies_actualitzades,
-        linies_esborrades, resum:{total_palets,total_sacs}, missatges }
+        linies_esborrades, resum:{total_palets,total_sacs,avisos}, missatges }
     """
     t0 = time.time()
     conn = None
@@ -523,8 +543,16 @@ def api_afegir_palets(doc_entry: int):
         preus_palet = obtenir_preus_palets_client(
             meta["card_code"], meta.get("addr"), conn=conn
         )
+        articles_palet = obtenir_articles_palet(conn)
         conn.close()
         conn = None
+
+        # El botó és un recàlcul sota demanda: les dades de la comanda han de
+        # sortir de SAP, no dels caches de 10 min de `consultes.py`.
+        invalidar_caches_comanda(
+            meta["series"], meta["docnum"],
+            cli_codi=meta["card_code"], adr_codi=meta.get("addr"),
+        )
 
         if meta["doc_status"] != "O":
             return jsonify({
@@ -560,6 +588,7 @@ def api_afegir_palets(doc_entry: int):
                 MARCADOR_LINIA_PALET_UDF,
                 MARCADOR_LINIA_PALET_VALOR,
                 linies_noves,
+                owned_item_codes=articles_palet,
             )
 
         elapsed = time.time() - t0
@@ -579,6 +608,7 @@ def api_afegir_palets(doc_entry: int):
             "resum": {
                 "total_palets": len(resultat.embalatges),
                 "total_sacs": sum(e.total_sacs for e in resultat.embalatges),
+                "avisos": sum(1 for t in resultat.trazabilitat if "AVÍS" in t),
             },
             "missatges": resultat.missatges,
         })

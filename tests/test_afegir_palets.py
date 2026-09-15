@@ -467,3 +467,194 @@ def test_replace_marked_lines_header_fields_opcional():
     )
     assert patch_body["U_FCCalcular"] == "N"
     assert len(patch_body["DocumentLines"]) == 1
+
+
+# ============================================================
+# owned_item_codes: línies palet escrites a mà per l'operari
+# ============================================================
+# Regressió del bug reportat pels usuaris (comanda 26600207): l'operari
+# escriu "01010 BASE PALET" a mà, el motor no la reconeix com a seva perquè
+# no porta `U_FCAfegit`, n'afegeix una altra i el palet surt duplicat.
+
+ARTICLES_PALET = {"01000", "01010", "01030", "01060"}
+
+
+@responses.activate
+def test_linia_palet_manual_es_recicla_no_es_duplica():
+    """Línia 01010 escrita a mà (U_FCAfegit=None) + motor calcula 01010 x2
+    → s'actualitza in-place, cap línia nova, cap duplicat."""
+    _login_response()
+
+    responses.add(
+        responses.GET, f"{URL}/Orders(207)",
+        json={
+            "DocEntry": 207,
+            "DocumentLines": [
+                {"LineNum": 0, "ItemCode": "31060", "Quantity": 1000, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+                {"LineNum": 1, "ItemCode": "01010", "Quantity": 1, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+                {"LineNum": 2, "ItemCode": "34161", "Quantity": 1000, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+            ],
+        },
+        status=200,
+    )
+    responses.add(responses.PATCH, f"{URL}/Orders(207)", status=204)
+
+    c = _make_client()
+    c.login()
+
+    stats = c.replace_marked_lines(
+        207, "U_FCAfegit", "S",
+        [{"ItemCode": "01010", "Quantity": 2, "U_FCAfegit": "S"}],
+        owned_item_codes=ARTICLES_PALET,
+    )
+
+    assert stats == {"removed": 0, "updated": 1, "added": 0, "kept": 2}
+
+    patch_calls = [call for call in responses.calls if call.request.method == "PATCH"]
+    assert len(patch_calls) == 1  # cap tancament
+    lines = json.loads(patch_calls[0].request.body)["DocumentLines"]
+    assert lines == [
+        {"LineNum": 0},
+        {"LineNum": 2},
+        {"LineNum": 1, "ItemCode": "01010", "Quantity": 2, "U_FCAfegit": "S"},
+    ]
+
+
+@responses.activate
+def test_linia_palet_manual_altre_article_es_tanca():
+    """Manual 01060 + motor calcula 01030 → la manual es tanca (no es pot
+    canviar l'ItemCode via PATCH) i s'afegeix la correcta."""
+    _login_response()
+
+    responses.add(
+        responses.GET, f"{URL}/Orders(300)",
+        json={
+            "DocEntry": 300,
+            "DocumentLines": [
+                {"LineNum": 0, "ItemCode": "30001", "Quantity": 500, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+                {"LineNum": 1, "ItemCode": "01060", "Quantity": 3, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+            ],
+        },
+        status=200,
+    )
+    responses.add(responses.PATCH, f"{URL}/Orders(300)", status=204)
+
+    c = _make_client()
+    c.login()
+
+    stats = c.replace_marked_lines(
+        300, "U_FCAfegit", "S",
+        [{"ItemCode": "01030", "Quantity": 4, "U_FCAfegit": "S"}],
+        owned_item_codes=ARTICLES_PALET,
+    )
+
+    assert stats == {"removed": 1, "updated": 0, "added": 1, "kept": 1}
+
+    patch_calls = [call for call in responses.calls if call.request.method == "PATCH"]
+    assert len(patch_calls) == 2
+    assert json.loads(patch_calls[0].request.body) == {
+        "DocumentLines": [{"LineNum": 1, "LineStatus": "bost_Close"}]
+    }
+    lines = json.loads(patch_calls[1].request.body)["DocumentLines"]
+    assert lines[0] == {"LineNum": 0}
+    assert lines[1] == {"ItemCode": "01030", "Quantity": 4, "U_FCAfegit": "S"}
+
+
+@responses.activate
+def test_prioritza_linia_marcada_davant_de_la_manual():
+    """Comanda 26600199: 01000 manual (45) + 01000 del motor (37).
+    Es recicla la del motor i es tanca la manual."""
+    _login_response()
+
+    responses.add(
+        responses.GET, f"{URL}/Orders(199)",
+        json={
+            "DocEntry": 199,
+            "DocumentLines": [
+                {"LineNum": 0, "ItemCode": "30001", "Quantity": 900, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+                {"LineNum": 4, "ItemCode": "01000", "Quantity": 45, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+                {"LineNum": 7, "ItemCode": "01000", "Quantity": 37, "U_FCAfegit": "S", "LineStatus": "bost_Open"},
+            ],
+        },
+        status=200,
+    )
+    responses.add(responses.PATCH, f"{URL}/Orders(199)", status=204)
+
+    c = _make_client()
+    c.login()
+
+    stats = c.replace_marked_lines(
+        199, "U_FCAfegit", "S",
+        [{"ItemCode": "01000", "Quantity": 40, "U_FCAfegit": "S"}],
+        owned_item_codes=ARTICLES_PALET,
+    )
+
+    assert stats == {"removed": 1, "updated": 1, "added": 0, "kept": 1}
+
+    patch_calls = [call for call in responses.calls if call.request.method == "PATCH"]
+    # Tanca la manual (L4), recicla la marcada (L7)
+    assert json.loads(patch_calls[0].request.body) == {
+        "DocumentLines": [{"LineNum": 4, "LineStatus": "bost_Close"}]
+    }
+    lines = json.loads(patch_calls[1].request.body)["DocumentLines"]
+    assert lines[-1] == {"LineNum": 7, "ItemCode": "01000", "Quantity": 40, "U_FCAfegit": "S"}
+
+
+@responses.activate
+def test_owned_item_codes_none_no_canvia_comportament():
+    """Sense owned_item_codes, una línia palet manual continua sent
+    intocable (comportament previ) — garanteix compatibilitat."""
+    _login_response()
+
+    responses.add(
+        responses.GET, f"{URL}/Orders(207)",
+        json={
+            "DocEntry": 207,
+            "DocumentLines": [
+                {"LineNum": 0, "ItemCode": "31060", "Quantity": 1000, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+                {"LineNum": 1, "ItemCode": "01010", "Quantity": 1, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+            ],
+        },
+        status=200,
+    )
+    responses.add(responses.PATCH, f"{URL}/Orders(207)", status=204)
+
+    c = _make_client()
+    c.login()
+
+    stats = c.replace_marked_lines(
+        207, "U_FCAfegit", "S",
+        [{"ItemCode": "01010", "Quantity": 2, "U_FCAfegit": "S"}],
+    )
+
+    assert stats == {"removed": 0, "updated": 0, "added": 1, "kept": 2}
+
+
+@responses.activate
+def test_linia_palet_manual_tancada_no_es_recicla():
+    """Una línia palet ja tancada no és candidata (ni manual ni marcada):
+    només rep placeholder."""
+    _login_response()
+
+    responses.add(
+        responses.GET, f"{URL}/Orders(301)",
+        json={
+            "DocEntry": 301,
+            "DocumentLines": [
+                {"LineNum": 0, "ItemCode": "01010", "Quantity": 1, "U_FCAfegit": None, "LineStatus": "bost_Close"},
+            ],
+        },
+        status=200,
+    )
+    responses.add(responses.PATCH, f"{URL}/Orders(301)", status=204)
+
+    c = _make_client()
+    c.login()
+
+    stats = c.replace_marked_lines(
+        301, "U_FCAfegit", "S",
+        [{"ItemCode": "01010", "Quantity": 2, "U_FCAfegit": "S"}],
+        owned_item_codes=ARTICLES_PALET,
+    )
+
+    assert stats == {"removed": 0, "updated": 0, "added": 1, "kept": 1}

@@ -266,6 +266,7 @@ class SLClient:
         marker_value: str,
         new_lines: list[dict[str, Any]],
         header_fields: dict[str, Any] | None = None,
+        owned_item_codes: set[str] | None = None,
     ) -> dict[str, int]:
         """Sincronitza les línies "marcades" d'una Order amb `new_lines`.
 
@@ -286,6 +287,13 @@ class SLClient:
           a nova línia.
         - Línies no marcades (usuari) i palet ja tancades → intactes
           (placeholders `{LineNum: X}` per no reorganitzar el document).
+
+        `owned_item_codes` amplia què considerem "línia nostra": qualsevol
+        línia oberta amb un d'aquests `ItemCode` es tracta com si portés el
+        marcador, encara que l'hagi escrita l'operari a mà. Sense això, una
+        línia de palet manual (sense `U_FCAfegit`) quedava invisible i el motor
+        n'afegia una segona del mateix article — el palet apareixia duplicat i
+        la quantitat, doblada. Amb `None` el comportament és el d'abans.
 
         Estructura de crides:
         - **PATCH #1** (només si cal tancar): payload de tancament pur.
@@ -313,26 +321,39 @@ class SLClient:
 
         current_lines = body.get("DocumentLines", []) or []
 
-        # 2. Separar palet obertes (candidates a reciclar) vs la resta
-        open_marked = [
-            l for l in current_lines
-            if l.get(marker_field) == marker_value
-            and l.get("LineStatus") != "bost_Close"
-        ]
+        # 2. Separar palet obertes (candidates a reciclar) vs la resta.
+        #    Són nostres tant les que porten el marcador com les d'un article
+        #    de palet escrit a mà per l'operari (`owned_item_codes`).
+        owned = owned_item_codes or set()
+
+        def _es_nostra(l: dict[str, Any]) -> bool:
+            if l.get("LineStatus") == "bost_Close":
+                return False
+            if l.get(marker_field) == marker_value:
+                return True
+            return (l.get("ItemCode") or "").strip() in owned
+
+        open_marked = [l for l in current_lines if _es_nostra(l)]
         open_marked_ids = {l["LineNum"] for l in open_marked}
         others = [l for l in current_lines if l["LineNum"] not in open_marked_ids]
 
-        # 3. Emparellar new_lines amb open_marked per ItemCode (in-place)
+        # 3. Emparellar new_lines amb open_marked per ItemCode (in-place).
+        #    Prioritzem les línies que ja porten el marcador: si hi ha una
+        #    línia nostra i una de manual del mateix article, reciclem la
+        #    nostra (ja té preu, magatzem i FreeText correctes) i tanquem la
+        #    manual.
         to_update: list[dict[str, Any]] = []
         to_add: list[dict[str, Any]] = []
         consumed: set[int] = set()
         for nl in new_lines:
-            candidate = next(
-                (l for l in open_marked
-                 if l["LineNum"] not in consumed
-                 and l.get("ItemCode") == nl.get("ItemCode")),
-                None,
-            )
+            candidats = [
+                l for l in open_marked
+                if l["LineNum"] not in consumed
+                and (l.get("ItemCode") or "").strip() == (nl.get("ItemCode") or "").strip()
+            ]
+            candidats.sort(key=lambda l: (0 if l.get(marker_field) == marker_value else 1,
+                                          l["LineNum"]))
+            candidate = candidats[0] if candidats else None
             payload = {k: v for k, v in nl.items() if k != "LineNum"}
             if candidate is not None:
                 to_update.append({"LineNum": candidate["LineNum"], **payload})

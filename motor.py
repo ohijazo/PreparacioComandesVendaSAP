@@ -48,7 +48,12 @@ def calcular_embalatges(sal_codigo: str, cpa_albara: str, forcar: bool = False,
     # Fase 2: lògica Python sense connexió oberta
     tipus_desc_origen = None
     if not direccio.tipus_descarrega:
-        palet_client = obtenir_palet_client(direccio.cli_codi, direccio.adr_codi)
+        # `conn_compartida` (batch) encara està oberta aquí i el semàfor de
+        # `consultes.py` només permet 1 connexió: sense passar-la, `connectar()`
+        # es quedaria bloquejat per sempre.
+        palet_client = obtenir_palet_client(
+            direccio.cli_codi, direccio.adr_codi, conn=conn_compartida
+        )
         if palet_client:
             direccio.tipus_descarrega = "PALET"
             tipus_desc_origen = f"PALET (detectat de PREUSCLIENTS: {palet_client['art_codi']})"

@@ -324,3 +324,58 @@ Aquest fitxer s'actualitza abans de cada commit d'una subfase de Fase 2:
 - Afegir nou apartat `§2.X` amb objectiu, canvis, verificació i commit hash.
 - Actualitzar la taula d'estat de subfases al principi.
 - Registrar qualsevol descoberta col·lateral o pendent.
+
+---
+
+## §2.7 Fix de producció: duplicació de palets i recàlcul obsolet (2026-09-15)
+
+### Objectiu
+Resoldre les dues queixes dels usuaris sobre el botó "Calcular embalatges":
+el palet ja anotat es duplicava, i per algunes comandes semblava que no
+recalculava.
+
+### Canvis
+- **`consultes.py`**
+  - `obtenir_articles_palet(conn)` — catàleg d'ItemCodes del grup d'articles
+    palet (`OITM.ItmsGrpCod`, per defecte 152 = `070002-PALETS`, configurable
+    amb `SAP_ITM_GRP_PALETS`). Cachejat en memòria.
+  - `invalidar_caches_comanda(..., cli_codi=None, adr_codi=None)` — purga també
+    `_direccio_cache` i `_palet_client_cache` (que cacheja resultats negatius)
+    sense dependre que la comanda ja fos al cache.
+  - `obtenir_direccio` retorna còpia: el motor muta `tipus_descarrega` quan
+    l'autodetecta i contaminava el cache per a tot el (client, direcció).
+  - `obtenir_metadata_ordr_per_doc_entry` retorna `ShipToCode` (codi de
+    direcció) en lloc de `Address2` (adreça formatada).
+  - `obtenir_palet_client` / `obtenir_preus_palets_client`: la prioritat per
+    direcció es fa per igualtat amb `U_SEIDireccion` (el `LIKE '<adr>-%'`
+    anterior no casava mai).
+  - `obtenir_palet_comanda` ignora les línies del propi motor (`U_FCAfegit='S'`)
+    i ordena per `LineNum` (el `TOP 1` no era determinista).
+- **`sap_service_layer.py`** — `replace_marked_lines(..., owned_item_codes=...)`:
+  també són línies del motor les obertes amb un ItemCode de palet, encara que
+  no portin marcador. Amb dues del mateix article, recicla la marcada i tanca
+  la manual. Amb `None` el comportament és l'anterior.
+- **`app.py`** — l'endpoint invalida els caches abans de calcular, passa
+  `owned_item_codes`, retorna `resum.avisos` i emet JSON sense escapar accents.
+- **`motor.py`** — `obtenir_palet_client` rep `conn_compartida` (sense això,
+  el camí batch es penjava al semàfor d'1 connexió).
+- **`docs/b1up_uf038_calcular_embalatges.cs`** — llegeix la resposta i mostra
+  el resum real (StatusBar si `CALCULAT` sense avisos, MessageBox amb els
+  missatges del motor si no).
+
+### Verificació
+- `pytest tests/` → **122/122 OK** (113 previs + 5 de propietat de línies palet
+  + 4 d'invalidació de caches).
+- Contra `DB_FARINERA_TEST`:
+  - 26600207: la línia manual queda tancada i en queda una de sola amb Qty=2;
+    segon clic → `+0 ~1 -0` (idempotent).
+  - 26600209 (Descamps): passa d'1 a 2 BasePalet, que és el que diu el motor.
+  - 26600199: manual `01000 x45` tancada, queden `01000 x37` + `01030 x4`.
+  - Comandes obertes amb palets duplicats: **7 → 0** (203, 206, 208, 91, 92
+    consolidades passant el botó).
+  - Tarifes per direcció: `C301147` + `089-...SAILEFORNERS` ara dona `01000`
+    (abans `01022`, d'una altra direcció).
+
+### Pendent operatiu
+Enganxar el codi C# nou a B1UP (UF-038) — el fitxer del repo és la còpia de
+referència, no s'aplica sol.

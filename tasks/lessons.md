@@ -555,3 +555,82 @@ Si un usuari reporta discrepància Kais/SAP:
    no és bug del motor.
 3. Si divergeixen local → cal investigar de veres el motor (com L6 amb
    sac_colagne_normal).
+
+---
+
+## L9 — El motor ha de ser propietari de TOTES les línies de palet, no només de les que marca
+
+**Data**: 2026-09-15.
+**Context**: els usuaris reporten que el botó "Calcular embalatges" (1) duplica
+el palet/base que ja hi havia anotat a la comanda i (2) per algunes comandes
+sembla que no recalcula.
+
+### Símptoma 1 — duplicació
+
+Comanda 26600207: línia 1 `01010 BASE PALET x1` escrita per l'operari
+(`U_FCAfegit=NULL`) i línia 3 `01010 BASE PALET x2` afegida pel motor. A la BD
+hi havia **7 comandes obertes** amb el mateix article de palet duplicat.
+
+`SLClient.replace_marked_lines` considerava "seves" només les línies amb
+`U_FCAfegit='S'`. Les manuals queien al sac de "línies d'usuari", rebien
+només un placeholder `{LineNum: X}` i mai s'emparellaven per ItemCode → el
+motor n'afegia una segona del mateix article, i a cada clic la seva es
+reciclava però la manual quedava allà sumant.
+
+**Descartat pel camí**: que el UDF no sobrevisqués el round-trip del Service
+Layer. Un `GET /Orders(207)?$select=DocEntry,DocumentLines` real retorna
+`U_FCAfegit: 'S'` correctament. Els `+1 ~0 -0` repetits del `motor.log` de
+juliol són d'abans que el UDF existís, no una prova de res.
+
+**Fix**: `replace_marked_lines(..., owned_item_codes=...)`. Una línia oberta és
+del motor si porta el marcador **o** si el seu `ItemCode` és del grup d'articles
+palet (`OITM.ItmsGrpCod=152`, `consultes.obtenir_articles_palet`). Quan hi ha
+dues línies del mateix article (una marcada i una manual), es recicla la
+marcada i es tanca la manual.
+
+### Símptoma 2 — "no recalcula"
+
+El botó cridava `/api/afegir-palets/<DocEntry>` sense `forcar`, i
+`consultes.py` cacheja comanda/línies/direcció **600 s**: editar la comanda i
+tornar a clicar dins la finestra recalculava amb les línies velles (comanda
+26600209: la línia deia 1 BasePalet quan el motor en donava 2).
+
+**Trampa**: `forcar=True` NO és la solució. A `motor.py` el mateix flag va a
+`aplicar_regles(..., forcar=forcar)` i desactiva els STOP de RF1/RF2/RF3/RF4 —
+`SOTA_MINIM` i `NO_CALCULABLE` passarien a `CALCULAT` sense avisar. Frescor de
+dades i saltar-se les regles són dues coses diferents; l'endpoint crida
+`invalidar_caches_comanda()` explícitament.
+
+`invalidar_caches_comanda` també era incompleta: no purgava mai
+`_palet_client_cache` (que cacheja **resultats negatius**: configurar una
+tarifa nova a SAP no tenia efecte durant 10 min) i només trobava la direcció
+si la comanda ja era al cache. Ara accepta `cli_codi`/`adr_codi`.
+
+I `obtenir_direccio` retornava l'objecte del cache, que `motor.py` muta quan
+autodetecta `tipus_descarrega` → contaminava totes les comandes d'aquell
+(client, direcció). Ara retorna còpia, com ja feia `obtenir_linies`.
+
+### Troballa col·lateral — la prioritat per direcció a les tarifes era codi mort
+
+`obtenir_palet_client` i `obtenir_preus_palets_client` prioritzaven la tarifa
+de la direcció amb `U_SEIDireccion LIKE '<adr_codi>-%'`. Però `U_SEIDireccion`
+conté **exactament** el mateix codi que `ORDR.ShipToCode`
+(`000-NUTREX PINSOS, SL-BANYOLES`), sense res al darrere: el `LIKE` no casava
+mai i sempre guanyava `ORDER BY DocEntry DESC`. Amb 18 clients amb més d'una
+tarifa activa, el palet i el preu podien ser els d'una altra direcció
+(verificat: C301147 + direcció `089-...SAILEFORNERS` donava `01022` en lloc de
+`01000`). A sobre, `obtenir_metadata_ordr_per_doc_entry` passava
+`ORDR.Address2` (l'adreça formatada en text) on tocava el codi.
+
+### Regla per al futur
+
+1. **Si el motor escriu línies a un document SAP, ha de reconèixer com a seves
+   totes les línies d'aquella família d'articles**, no només les que ha marcat
+   ell. L'operari sempre n'escriurà alguna a mà.
+2. **Un botó de recàlcul sota demanda no pot llegir de cache.** Invalidar
+   explícitament, i no reutilitzar un flag que ja significa una altra cosa.
+3. **Direccions SAP**: el codi és `ORDR.ShipToCode` / `CRD1.Address` /
+   `@SEITARIFACAB.U_SEIDireccion` (tots el mateix format, comparació
+   d'igualtat). `ORDR.Address2` és text formatat i no serveix com a clau.
+4. Abans de culpar el Service Layer d'un comportament estrany, **comprova-ho
+   amb un GET real** — els logs vells poden ser d'una altra versió de l'esquema.
