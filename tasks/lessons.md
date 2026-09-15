@@ -645,3 +645,54 @@ tarifa activa, el palet i el preu podien ser els d'una altra direcció
    d'igualtat). `ORDR.Address2` és text formatat i no serveix com a clau.
 4. Abans de culpar el Service Layer d'un comportament estrany, **comprova-ho
    amb un GET real** — els logs vells poden ser d'una altra versió de l'esquema.
+
+---
+
+## L10 — Canviar el codi d'una UF de B1UP pot xocar amb l'antivirus
+
+**Data**: 2026-09-15.
+**Context**: després d'enganxar la versió nova del codi C# de `UF-038`, el botó
+"Calcular embalatges" no feia res i SAP treia un *Mensaje de sistema* amb dos
+errors, tots dos de `Line: 0` (o sigui, del compilador, no del codi):
+
+```
+Line: 0 - cannot open C:\Users\...\AppData\Local\Temp\RESF6D3.tmp for writing
+Line: 0 - '...\Temp\CSC....TMP' no es un archivo de recursos Win32 válido
+```
+
+### Causa
+
+B1UP **compila el codi dinàmic al vol** dins `%TEMP%` i només ho fa quan el
+codi canvia (després cacheja l'assembly). Generar i executar codi nou en temps
+d'execució és exactament el patró que bloquegen els EDR. En aquest equip n'hi
+ha tres: **Cynet Endpoint Security**, **HP Wolf Pro Security** i Windows
+Defender.
+
+El rastre és inequívoc: el `RES*.tmp` queda creat **a 0 bytes** amb la marca de
+temps del clic, i el segon error només n'és la conseqüència (un fitxer de
+recursos buit no és un fitxer de recursos vàlid). No queda cap procés
+`csc`/`cvtres` viu: l'han tallat en sec.
+
+Descartats pel camí: espai a disc (708 GB lliures) i `%TEMP%` saturat (6.647
+fitxers, però només 41 restes velles del compilador).
+
+### Solució
+
+**Tornar a clicar el botó.** El bloqueig depèn de la temporització de
+l'escaneig i el segon intent acostuma a passar. Un cop compila una vegada,
+queda cachejat i no torna a molestar fins al pròxim canvi de codi.
+
+Si fos persistent, cal demanar a Sistemes una exclusió d'escaneig en temps real
+per a `%TEMP%\CSC*.TMP`, `%TEMP%\RES*.tmp` i els executables `csc.exe` /
+`cvtres.exe` quan els llança `SAP Business One.exe`.
+
+### Regla per al futur
+
+**Un error de B1UP amb `Line: 0` no és un error del teu codi.** Mira la ruta
+del fitxer temporal que menciona: si és un `RES*.tmp` o `CSC*.TMP`, és
+l'antivirus o el `%TEMP%`, no C#. Els errors de compilació de debò porten el
+número de línia del codi.
+
+I recorda que mentre el codi no compili, **el botó queda mort per a tothom**:
+B1UP no té l'assembly nou i tampoc torna al vell. Val la pena canviar el codi
+de `UF-038` fora d'hores punta i comprovar-lo amb un clic just després.
