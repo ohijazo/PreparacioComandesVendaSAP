@@ -295,6 +295,10 @@ class SLClient:
         n'afegia una segona del mateix article — el palet apareixia duplicat i
         la quantitat, doblada. Amb `None` el comportament és el d'abans.
 
+        Si per un mateix `ItemCode` hi ha candidata manual i candidata marcada,
+        es recicla la **manual**: l'operari ha de retrobar al document la línia
+        que ell va escriure, amb la quantitat corregida.
+
         Estructura de crides:
         - **PATCH #1** (només si cal tancar): payload de tancament pur.
           SL rebutja "close + altres modificacions" al mateix PATCH
@@ -338,10 +342,12 @@ class SLClient:
         others = [l for l in current_lines if l["LineNum"] not in open_marked_ids]
 
         # 3. Emparellar new_lines amb open_marked per ItemCode (in-place).
-        #    Prioritzem les línies que ja porten el marcador: si hi ha una
-        #    línia nostra i una de manual del mateix article, reciclem la
-        #    nostra (ja té preu, magatzem i FreeText correctes) i tanquem la
-        #    manual.
+        #    Quan hi ha una línia manual i una del motor del mateix article,
+        #    **sobreviu la de l'operari**: se li corregeix la quantitat i se
+        #    la marca com a nostra, i es tanca la del motor. La línia que
+        #    l'operari ha escrit no ha de desaparèixer del seu document; els
+        #    camps que importen (preu, magatzem, FreeText) els posa igualment
+        #    l'update in-place.
         to_update: list[dict[str, Any]] = []
         to_add: list[dict[str, Any]] = []
         consumed: set[int] = set()
@@ -351,7 +357,7 @@ class SLClient:
                 if l["LineNum"] not in consumed
                 and (l.get("ItemCode") or "").strip() == (nl.get("ItemCode") or "").strip()
             ]
-            candidats.sort(key=lambda l: (0 if l.get(marker_field) == marker_value else 1,
+            candidats.sort(key=lambda l: (1 if l.get(marker_field) == marker_value else 0,
                                           l["LineNum"]))
             candidate = candidats[0] if candidats else None
             payload = {k: v for k, v in nl.items() if k != "LineNum"}

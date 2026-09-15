@@ -585,8 +585,19 @@ juliol són d'abans que el UDF existís, no una prova de res.
 **Fix**: `replace_marked_lines(..., owned_item_codes=...)`. Una línia oberta és
 del motor si porta el marcador **o** si el seu `ItemCode` és del grup d'articles
 palet (`OITM.ItmsGrpCod=152`, `consultes.obtenir_articles_palet`). Quan hi ha
-dues línies del mateix article (una marcada i una manual), es recicla la
-marcada i es tanca la manual.
+dues línies del mateix article (una marcada i una manual), **sobreviu la de
+l'operari**: se li corregeix la quantitat i es tanca la del motor. Decisió de
+producte demanada pels usuaris — la línia que ells han escrit no ha de
+desaparèixer del document. Els camps que importen (preu de tarifa, magatzem,
+`FreeText`, marcador) els posa igualment l'update in-place, o sigui que la
+línia supervivent queda equivalent.
+
+**Descartada** l'alternativa de repartir la quantitat (deixar la manual a 1 i
+posar la resta a la línia del motor): tornaria a ensenyar dues línies del
+mateix article a la graella, la quantitat d'una línia deixaria de ser
+interpretable tota sola, i no hi ha resposta raonable quan el que l'operari ha
+escrit supera el que calcula el motor (cas real: 26600199, manual 45 vs
+calculat 37 → el document facturaria 45).
 
 ### Símptoma 2 — "no recalcula"
 

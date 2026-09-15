@@ -561,9 +561,10 @@ def test_linia_palet_manual_altre_article_es_tanca():
 
 
 @responses.activate
-def test_prioritza_linia_marcada_davant_de_la_manual():
+def test_sobreviu_la_linia_de_l_operari():
     """Comanda 26600199: 01000 manual (45) + 01000 del motor (37).
-    Es recicla la del motor i es tanca la manual."""
+    Sobreviu la de l'operari amb la quantitat corregida; es tanca la del
+    motor. L'operari ha de retrobar la línia que ell va escriure."""
     _login_response()
 
     responses.add(
@@ -592,12 +593,12 @@ def test_prioritza_linia_marcada_davant_de_la_manual():
     assert stats == {"removed": 1, "updated": 1, "added": 0, "kept": 1}
 
     patch_calls = [call for call in responses.calls if call.request.method == "PATCH"]
-    # Tanca la manual (L4), recicla la marcada (L7)
+    # Tanca la del motor (L7), recicla la de l'operari (L4)
     assert json.loads(patch_calls[0].request.body) == {
-        "DocumentLines": [{"LineNum": 4, "LineStatus": "bost_Close"}]
+        "DocumentLines": [{"LineNum": 7, "LineStatus": "bost_Close"}]
     }
     lines = json.loads(patch_calls[1].request.body)["DocumentLines"]
-    assert lines[-1] == {"LineNum": 7, "ItemCode": "01000", "Quantity": 40, "U_FCAfegit": "S"}
+    assert lines[-1] == {"LineNum": 4, "ItemCode": "01000", "Quantity": 40, "U_FCAfegit": "S"}
 
 
 @responses.activate

@@ -156,12 +156,21 @@ Tot i estar sota mínim, el motor calcula la proposta d'embalatges (mateix
 comportament que Kais) i les línies s'afegeixen. Com que l'estat no és
 `CALCULAT`, el botó ho ensenya amb MessageBox incloent el missatge de RF2 STOP.
 
-### L'operari havia escrit el palet a mà i ara la seva línia surt tancada
+### Què passa amb el palet que l'operari escriu a mà
 
-Comportament volgut des del fix de 2026-09-15: el motor és propietari de totes
-les línies d'articles del grup PALETS. Si l'article coincideix amb el que
-calcula, actualitza la línia manual; si no, la tanca i afegeix la correcta.
-Abans se'n creava una de nova i el palet quedava duplicat (`tasks/lessons.md` L9).
+Des del fix de 2026-09-15 el motor és propietari de totes les línies
+d'articles del grup PALETS:
+
+- **Mateix article que el calculat** → li corregeix la quantitat a la mateixa
+  línia. La línia de l'operari es queda al document; no es crea res de nou.
+- **Article diferent** (ex. va escriure `01060` i el motor calcula `01030`) →
+  es tanca la seva i s'afegeix la correcta. El Service Layer no permet canviar
+  l'`ItemCode` d'una línia existent.
+- **Si hi ha la seva línia i una del motor** del mateix article (herència de
+  comandes velles), sobreviu **la de l'operari** i es tanca la del motor.
+
+Abans se'n creava sempre una de nova i el palet quedava duplicat
+(`tasks/lessons.md` L9).
 
 ### El botó diu "recalculat" però la quantitat no canvia
 

@@ -353,8 +353,8 @@ recalculava.
     i ordena per `LineNum` (el `TOP 1` no era determinista).
 - **`sap_service_layer.py`** — `replace_marked_lines(..., owned_item_codes=...)`:
   també són línies del motor les obertes amb un ItemCode de palet, encara que
-  no portin marcador. Amb dues del mateix article, recicla la marcada i tanca
-  la manual. Amb `None` el comportament és l'anterior.
+  no portin marcador. Amb dues del mateix article, sobreviu la de l'operari
+  (se li corregeix la quantitat) i es tanca la del motor. Amb `None` el comportament és l'anterior.
 - **`app.py`** — l'endpoint invalida els caches abans de calcular, passa
   `owned_item_codes`, retorna `resum.avisos` i emet JSON sense escapar accents.
 - **`motor.py`** — `obtenir_palet_client` rep `conn_compartida` (sense això,
@@ -370,7 +370,8 @@ recalculava.
   - 26600207: la línia manual queda tancada i en queda una de sola amb Qty=2;
     segon clic → `+0 ~1 -0` (idempotent).
   - 26600209 (Descamps): passa d'1 a 2 BasePalet, que és el que diu el motor.
-  - 26600199: manual `01000 x45` tancada, queden `01000 x37` + `01030 x4`.
+  - 26600199: la línia de l'operari `01000` passa a x37 i es tanca la del
+    motor; queden `01000 x37` + `01030 x4`.
   - Comandes obertes amb palets duplicats: **7 → 0** (203, 206, 208, 91, 92
     consolidades passant el botó).
   - Tarifes per direcció: `C301147` + `089-...SAILEFORNERS` ara dona `01000`
