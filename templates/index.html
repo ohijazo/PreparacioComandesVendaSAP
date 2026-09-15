@@ -24,7 +24,9 @@
             <div style="display: flex; gap: 0.5rem; align-items: center;">
                 <button id="btn-preview-palets" class="dark-toggle" title="Activar/desactivar preview de palets al hover" aria-label="Commuta preview de palets">&#128230;</button>
                 <button id="btn-dark-mode" class="dark-toggle" title="Mode fosc/clar" aria-label="Commuta mode fosc/clar">&#9790;</button>
+                {% if calendari_url %}
                 <a href="/calendari" class="help-link" target="_blank" rel="noopener" title="Calendari de c&agrave;rregues" aria-label="Obrir calendari de c&agrave;rregues">&#128197; Calendari</a>
+                {% endif %}
                 <a href="/ajuda" class="help-link" target="_blank" title="Ajuda" aria-label="Obrir p&agrave;gina d'ajuda">? Ajuda</a>
             </div>
         </div>
@@ -437,6 +439,6 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=53"></script>
+    <script src="/static/js/app.js?v=54"></script>
 </body>
 </html>
