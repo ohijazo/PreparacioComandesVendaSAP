@@ -659,3 +659,78 @@ def test_linia_palet_manual_tancada_no_es_recicla():
     )
 
     assert stats == {"removed": 0, "updated": 0, "added": 1, "kept": 1}
+
+
+@responses.activate
+def test_dues_linies_manuals_del_mateix_article_nomes_en_sobreviu_una():
+    """Si l'operari escriu dues vegades el mateix article de palet, només una
+    pot rebre la quantitat calculada; l'altra es tanca."""
+    _login_response()
+
+    responses.add(
+        responses.GET, f"{URL}/Orders(302)",
+        json={
+            "DocEntry": 302,
+            "DocumentLines": [
+                {"LineNum": 0, "ItemCode": "30001", "Quantity": 500, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+                {"LineNum": 1, "ItemCode": "01010", "Quantity": 1, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+                {"LineNum": 2, "ItemCode": "01010", "Quantity": 1, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+            ],
+        },
+        status=200,
+    )
+    responses.add(responses.PATCH, f"{URL}/Orders(302)", status=204)
+
+    c = _make_client()
+    c.login()
+
+    stats = c.replace_marked_lines(
+        302, "U_FCAfegit", "S",
+        [{"ItemCode": "01010", "Quantity": 3, "U_FCAfegit": "S"}],
+        owned_item_codes=ARTICLES_PALET,
+    )
+
+    assert stats == {"removed": 1, "updated": 1, "added": 0, "kept": 1}
+
+    patch_calls = [call for call in responses.calls if call.request.method == "PATCH"]
+    # Sobreviu la primera (LineNum més baix), es tanca la segona
+    assert json.loads(patch_calls[0].request.body) == {
+        "DocumentLines": [{"LineNum": 2, "LineStatus": "bost_Close"}]
+    }
+    lines = json.loads(patch_calls[1].request.body)["DocumentLines"]
+    assert lines[-1] == {"LineNum": 1, "ItemCode": "01010", "Quantity": 3, "U_FCAfegit": "S"}
+
+
+@responses.activate
+def test_sense_palets_calculats_es_tanquen_totes_les_linies_palet():
+    """Si el motor no genera cap palet, les línies palet obertes (també les
+    manuals) es tanquen: la comanda no ha de quedar amb palets fantasma."""
+    _login_response()
+
+    responses.add(
+        responses.GET, f"{URL}/Orders(303)",
+        json={
+            "DocEntry": 303,
+            "DocumentLines": [
+                {"LineNum": 0, "ItemCode": "30001", "Quantity": 500, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+                {"LineNum": 1, "ItemCode": "01010", "Quantity": 2, "U_FCAfegit": None, "LineStatus": "bost_Open"},
+            ],
+        },
+        status=200,
+    )
+    responses.add(responses.PATCH, f"{URL}/Orders(303)", status=204)
+
+    c = _make_client()
+    c.login()
+
+    stats = c.replace_marked_lines(
+        303, "U_FCAfegit", "S", [], owned_item_codes=ARTICLES_PALET,
+    )
+
+    assert stats == {"removed": 1, "updated": 0, "added": 0, "kept": 1}
+
+    patch_calls = [call for call in responses.calls if call.request.method == "PATCH"]
+    assert len(patch_calls) == 1  # només el tancament, no hi ha res a afegir
+    assert json.loads(patch_calls[0].request.body) == {
+        "DocumentLines": [{"LineNum": 1, "LineStatus": "bost_Close"}]
+    }
