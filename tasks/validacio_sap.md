@@ -26,6 +26,10 @@ Pla vinculat: `C:\Users\ohijazo.AGRIENERGIA\.claude\plans\la-idea-era-que-partit
 
 ## 1.1 Preflight configuració — ✅ OK
 
+> **Nota 2026-09-22** — la BD de test ha passat a `DB_FARIN_TEST` (restaurada des de
+> `DB_FARINERA_TEST`, mateixes dades; l'antiga ha quedat OFFLINE). Les validacions
+> d'aquest document es van executar contra el nom antic i segueixen sent vàlides.
+
 - `.env` complet: `SAP_SQL_SERVER=AE01SAPSQL.Agrienergia.local`, `SAP_SQL_DATABASE=DB_FARINERA_TEST`, `SAP_SQL_USER=sa`, `KAIS_APP_PATH=P:\preparacioComandesVenda`, `PORT=5002`.
 - ODBC Driver 18 for SQL Server instal·lat (32 + 64-bit).
 - Python 3.13.14, virtualenv operatiu.

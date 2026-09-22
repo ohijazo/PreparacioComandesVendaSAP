@@ -81,7 +81,7 @@ if os.path.exists(_env_path):
                 os.environ.setdefault(key.strip(), val.strip())
 
 SERVER = os.environ.get("SAP_SQL_SERVER", "")
-DATABASE = os.environ.get("SAP_SQL_DATABASE", "DB_FARINERA_TEST")
+DATABASE = os.environ.get("SAP_SQL_DATABASE", "DB_FARIN_TEST")
 USER = os.environ.get("SAP_SQL_USER", "sa")
 PASSWORD = os.environ.get("SAP_SQL_PASSWORD", "")
 

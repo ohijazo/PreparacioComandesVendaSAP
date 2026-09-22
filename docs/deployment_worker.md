@@ -11,7 +11,7 @@ Guia per desplegar `run_sync.py` com a servei Windows amb NSSM.
 5. **Credencials Service Layer** — al `.env`:
    ```
    SAP_SL_URL=https://<sap-host>:50000/b1s/v2
-   SAP_SL_COMPANY=DB_FARINERA_TEST
+   SAP_SL_COMPANY=DB_FARIN_TEST
    SAP_SL_USER=<user_sl>
    SAP_SL_PASSWORD=<pwd_sl>
    SAP_SL_VERIFY_SSL=true

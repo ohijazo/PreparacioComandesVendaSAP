@@ -112,7 +112,7 @@ Servidor Ubuntu ae01farwebsrv (paral·lel amb Kais)
 Flask app (comandes-venda-sap.service, port 5002)
         │
         │ (3) Llegeix comanda + articles + direcció        ┌─── SQL Server SAP B1
-        ├──────────────────────────────────────────────────▶│ AE01SAPSQL / DB_FARINERA_TEST
+        ├──────────────────────────────────────────────────▶│ AE01SAPSQL / DB_FARIN_TEST
         │                                                    │ (només SELECT, ApplicationIntent=ReadOnly)
         │
         │ (4) Executa motor RF1-RF14 → llista de palets
@@ -333,7 +333,7 @@ Operari veu les línies palet a la graella. Fi.</code></pre>
 <ul>
     <li>Usuari: <code>OHijazo</code>.</li>
     <li>URL: <code>https://192.168.11.238:50000/b1s/v1</code>.</li>
-    <li>Companyia: <code>DB_FARINERA_TEST</code>.</li>
+    <li>Companyia: <code>DB_FARIN_TEST</code>.</li>
     <li>SSL: verify_ssl=false (cert auto-signat).</li>
     <li>Timeout per request: 15s (amb reintents automàtics).</li>
 </ul>

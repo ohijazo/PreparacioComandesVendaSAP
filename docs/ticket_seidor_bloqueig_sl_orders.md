@@ -1,7 +1,7 @@
 # Ticket a SEIDOR — Service Layer bloqueja PATCH sobre Sales Orders
 
 **Data**: 2026-07-28
-**Sistema**: SAP Business One 10.0, BD `DB_FARINERA_TEST`
+**Sistema**: SAP Business One 10.0, BD `DB_FARIN_TEST`
 **Servidor**: `192.168.11.238` (Windows Server 2025)
 **Service Layer**: `https://192.168.11.238:50000/b1s/v1` (i `/v2`)
 **Usuari SL**: `OHijazo` (administrador)
