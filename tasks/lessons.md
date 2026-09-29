@@ -696,3 +696,54 @@ número de línia del codi.
 I recorda que mentre el codi no compili, **el botó queda mort per a tothom**:
 B1UP no té l'assembly nou i tampoc torna al vell. Val la pena canviar el codi
 de `UF-038` fora d'hores punta i comprovar-lo amb un clic just després.
+
+---
+
+## L11 — La còpia SAP hereta identificadors de Kais que apunten a producció
+
+### Context
+
+Auditant el desplegament (29-09-2026) vaig trobar que
+`/api/admin/actualitzar` de la variant SAP feia:
+
+```python
+subprocess.run(["sudo", "systemctl", "restart", "comandes-venda"])
+```
+
+`comandes-venda` és el servei de **Kais, producció**. El de SAP és
+`comandes-venda-sap`. I no és codi mort: `templates/ajuda.html` té un botó que
+crida aquest endpoint. Pitjor, la guia de desplegament de Kais documenta aquest
+`sudoers`:
+
+```
+www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart comandes-venda
+```
+
+És a dir, el permís per executar-ho existeix. Clicar "actualitzar" des de
+l'aplicació SAP reiniciava Kais en producció **i deixava SAP corrent el codi
+antic**, perquè el seu propi servei no es reiniciava mai. Silenciós en tots dos
+sentits: l'usuari de SAP veia `"restart": "ok"`.
+
+### Causa arrel
+
+La variant SAP es va crear copiant la de Kais. Els mòduls compartits es resolen
+per `sys.path` i els paths de dades es van revisar, però els **identificadors
+d'infraestructura** incrustats dins de strings (noms de servei systemd, noms de
+vhost, rutes `/var/www/...`) no els detecta cap test ni cap import: són text.
+
+### Regla per al futur
+
+Quan es toqui qualsevol cosa de desplegament de la variant SAP, passar aquest
+sedàs abans:
+
+```bash
+grep -rn "comandes-venda\b" --include="*.py" --include="*.html" . | grep -v "comandes-venda-sap"
+```
+
+Tot el que surti a `app.py`, `motor.py`, `consultes.py`, `templates/` o
+`static/` és sospitós i s'ha de mirar un per un. El que surt a `deploy.sh`
+(`KAIS_PATH`) i a les guies històriques de Kais és correcte i ha de quedar.
+
+Corol·lari més general: **un identificador d'infraestructura dins d'un string no
+el protegeix ni el compilador ni els tests**. Els 124 tests passaven amb aquest
+bug a dins i hi haurien seguit passant.

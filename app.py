@@ -827,11 +827,16 @@ def api_admin_actualitzar():
                 )
                 pip_ok = pip.returncode == 0
 
-        # Reiniciar servei
+        # Reiniciar servei.
+        #
+        # El nom ha de ser el de la variant SAP. Amb el nom heretat de Kais
+        # (`comandes-venda`) aquest botó reiniciava l'aplicació de producció i
+        # deixava SAP corrent el codi antic — i el sudoers que documenta la guia
+        # de Kais concedeix precisament aquest permís a www-data.
         restart_ok = False
         try:
             restart = subprocess.run(
-                ["sudo", "systemctl", "restart", "comandes-venda"],
+                ["sudo", "systemctl", "restart", "comandes-venda-sap"],
                 capture_output=True, text=True, timeout=10,
             )
             restart_ok = restart.returncode == 0
