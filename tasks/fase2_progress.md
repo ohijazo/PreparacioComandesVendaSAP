@@ -39,7 +39,7 @@ S'actualitza a cada commit rellevant. Complement a:
 | 2.7 | Fix duplicació de palets i recàlcul obsolet | ✅ Fet (commit `1b3c6d6`) |
 | 2.8 | Gunicorn en producció + swap de la URL a SAP | ✅ Gunicorn fet (`a33c5e0`); swap pendent del DNS de Sistemes |
 | 2.9 | Reutilització de la sessió Service Layer | ✅ Fet i verificat al servidor (commit `7b75380`, smoke test 8/8) |
-| 2.10 | Fix RF4: apilament ignorava la capacitat del palet | 🔧 Fet i provat al repo; pendent desplegar |
+| 2.10 | Fix RF4: apilament ignorava la capacitat del palet | ✅ Desplegat i verificat en producció (`e279128`) |
 
 ---
 
@@ -624,9 +624,14 @@ diu "Already up to date" i no desfà res: `git pull` fusiona, no pot moure `HEAD
 enrere. L'únic efecte és que el botó no actualitzarà res fins que `origin/main`
 avanci, i llavors caldrà resoldre la fusió.
 
+### Verificació en producció (29-09-2026)
+Desplegat `e279128` a `/var/www/comandes-venda` i reiniciats els dos serveis.
+`GET /api/calcular/268/26600258` contra el servidor retorna **12 palets**, cap per
+sobre de 40, amb els 15 sacs de sèmola al palet 12. Kais segueix responent.
+
 ### Pendent
-1. Desplegar (comandaments de sobre) i confirmar-ho amb l'usuari que ho va
-   reportar.
+1. Confirmar-ho amb l'usuari que ho va reportar: ha de tornar a clicar "Calcular
+   embalatges" a la comanda perquè la línia de palet passi d'11 a 12.
 2. Endreçar el repo de Kais: té 4 commits sense pujar i l'arbre de treball brut.
    Decidir què es fa amb la feature d'avisos a fabricació i tornar el servidor a
    `main`.

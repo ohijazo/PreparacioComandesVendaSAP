@@ -39,7 +39,8 @@ estar ple, `remaining` sempre arribava a 0.
 - [x] Sincronitzar `tests/test_rf4.py` a les dues variants (la còpia de SAP anava
       dos tests enrere)
 - [x] Branca de desplegament `fix/rf4-capacitat-apilament` (`e279128`) pujada
-- [ ] **Desplegar al servidor** i confirmar-ho amb l'usuari
+- [x] **Desplegat al servidor** (29-09-2026) i verificat: 12 palets
+- [ ] Confirmar-ho amb l'usuari que ho va reportar
 
 ## Resultat amb la comanda del cas
 
