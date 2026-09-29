@@ -71,8 +71,10 @@ sudo systemctl restart comandes-venda-sap
 sudo systemctl restart comandes-venda
 ```
 
-⚠️ Mentre el directori de Kais estigui en aquesta branca, **no fer servir el botó
-"actualitzar" de Kais**: fa `git pull origin main` i tornaria a `9691d38`.
+El botó "actualitzar" de Kais fa `git pull origin main`. Com que `origin/main`
+(`9691d38`) és avantpassat del commit desplegat, el pull no desfà res ("Already up
+to date"): `git pull` fusiona i no pot moure `HEAD` enrere. Simplement no
+actualitzarà res fins que `origin/main` avanci.
 
 ## Revisió
 

@@ -607,9 +607,22 @@ sudo systemctl restart comandes-venda-sap
 sudo systemctl restart comandes-venda
 ```
 
-⚠️ Mentre el directori de Kais estigui en aquesta branca, **no fer servir el botó
-"actualitzar" de Kais**: el seu `/api/admin/actualitzar` fa `git pull origin main`
-i tornaria el directori a `9691d38`, desfent l'arreglo.
+**Entrebanc trobat al primer intent**: el `fetch` com a `www-data` fallava amb
+`insufficient permission for adding an object to repository database
+.git/objects`, tot i que `/var/www/comandes-venda` és de `www-data`. La causa eren
+**27 objectes de `root:root` dins de `.git/objects`** — inclosos directoris com
+`08`, `ad`, `35` i `21` — restes d'algun `sudo git` executat com a root. Git ha de
+crear fitxers dins d'aquests directoris i no podia. Arreglat amb:
+
+```bash
+sudo chown -R www-data:www-data /var/www/comandes-venda/.git
+```
+
+El botó "actualitzar" de Kais (`/api/admin/actualitzar`) fa `git pull origin main`.
+Com que `origin/main` (`9691d38`) és **avantpassat** del commit desplegat, el pull
+diu "Already up to date" i no desfà res: `git pull` fusiona, no pot moure `HEAD`
+enrere. L'únic efecte és que el botó no actualitzarà res fins que `origin/main`
+avanci, i llavors caldrà resoldre la fusió.
 
 ### Pendent
 1. Desplegar (comandaments de sobre) i confirmar-ho amb l'usuari que ho va
