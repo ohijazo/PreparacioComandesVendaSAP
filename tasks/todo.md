@@ -55,9 +55,12 @@ interactiva. El desplegament l'ha d'executar l'Oscar o Sistemes amb els
 comandaments del PDF (`docs/Desplegament_SAP_Sistemes.pdf`, apartat 4).
 
 Versió desplegada actualment: `1b3c6d6` (15-09-2026).
-Versió a desplegar: `3f266b3`. Commits pendents:
+Versió a desplegar: `ea3a30a`. Commits pendents (5):
+- `1ff399d` docs: L10 — l'antivirus pot blocar la compilació del codi de B1UP
 - `2aed94a` test: cobrir els dos casos en què es tanca una línia palet manual
 - `3f266b3` chore(sap): la BD de test passa a `DB_FARIN_TEST`
+- `dad8ebf` fix(sap): l'endpoint admin reiniciava el servei de Kais
+- `ea3a30a` feat(deploy): convivència Kais+SAP via IP secundària
 
 ## Ordre d'execució al servidor
 

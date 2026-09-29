@@ -472,8 +472,9 @@ així que les dues portes conviuen fins que el consultor reapunti la UF-038.
 ### Pendent operatiu
 1. **Sistemes**: alta d'IP `192.168.11.245` (netplan) + DNS
    `comandes-sap.agrienergia.local` TTL 300.
-2. **Desplegament dels 2 commits pendents** (`2aed94a`, `3f266b3`) — el servidor
-   corre `1b3c6d6`. No s'ha pogut fer des d'aquí: `ssh ohijazo@192.168.11.244` →
+2. **Desplegament dels 5 commits pendents** — el servidor corre `1b3c6d6` i el
+   repo va per `ea3a30a` (`1ff399d`, `2aed94a`, `3f266b3`, `dad8ebf`, `ea3a30a`).
+   No s'ha pogut fer des d'aquí: `ssh ohijazo@192.168.11.244` →
    `Permission denied (publickey,password)`. L'ha d'executar l'Oscar.
 3. Un cop la IP existeixi: `sudo SAP_BIND_IP=192.168.11.245 bash deploy.sh
    --reinstall-service`.
