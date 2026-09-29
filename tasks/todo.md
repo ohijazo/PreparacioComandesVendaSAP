@@ -1,81 +1,114 @@
-# Pla d'implementació V9 (08-05-26)
+# Convivència Kais + SAP amb URL pròpia per SAP (29-09-2026)
 
-Origen: `REGLES PREPARACIÓ DE COMANDES DE VENDA V9.docx`
-Diff respecte V8: 2 regles noves (RF11, RF12). RF1-RF10 inalterades.
+## Context i troballa inicial
 
-## Cas reportat que motiva V9
+Auditant el servidor `ae01farwebsrv` (192.168.11.244) abans de desplegar els 2
+commits pendents, l'estat real **no coincideix** amb el que assumia el repo:
 
-Comanda **01/0003442** client 00271060:
-- 30860 PIRINEUS (S25, 80 sacs, max=40 dir)
-- 30730 MEULE T80 (S25, 60 sacs, UxC=30, aprovisionament_estoc)
-- 33851 GRAN FORÇA (S25, 40 sacs, max=40 dir)
+| Assumpció al repo | Realitat al servidor |
+|---|---|
+| Apache reverse proxy al port 80 amb vhosts per nom | **No hi ha Apache.** El Gunicorn de Kais escolta a `0.0.0.0:80` i respon a qualsevol `Host` |
+| SAP corre amb Gunicorn a `127.0.0.1:5002` | SAP corre amb el **dev server de Flask** (`Server: Werkzeug/3.1.7`) a `0.0.0.0:5002` |
+| Kais accessible al port 5001 | 5001 tancat des de fora; només 80 i 5002 oberts |
 
-Comportament actual (V8): palets mixtos 30 MEULE + 10 GRAN FORÇA = 40 sacs.
-Comportament esperat (V9, RF12): MEULE no es barreja perquè 60 % 30 = 0.
+Causa arrel del punt 2: el camí d'**actualització** de `deploy.sh` fa `git pull`
++ `systemctl restart`, però **mai reescriu la unit systemd**. La unit amb
+Gunicorn només es crea a `--first-install`, i el servidor es va instal·lar abans
+que existís.
 
-## Regles noves
+Conseqüència: `deploy/apache/*.conf` i la Fase B del runbook de swap descriuen
+passos **inexecutables** (a2ensite/apachectl sobre un Apache que no hi és).
 
-### RF11 — Comandes amb sacs S05/S10
-Si total_sacs(S05+S10) ≥ 15 → max_sacs = UxC per aquells articles.
+## Decisions preses (Oscar, 29-09-2026)
 
-### RF12 — No barreja si quantitat múltiple del max
-Si `sacs_article % max_efectiu == 0` → article ocupa palets propis (no es barreja).
+1. **Les dues variants han de conviure una temporada** — Kais no es toca gens.
+2. **Convivència via IP secundària**, no via reverse proxy:
+   - `192.168.11.244:80` → Kais (`comandes.agrienergia.local`) — intacte
+   - `192.168.11.245:80` → SAP (`comandes-sap.agrienergia.local`) — nou
+   - Zero canvis a Kais; el swap futur passa a ser només un canvi de DNS.
+3. **Migrar SAP a Gunicorn** en aquest mateix desplegament.
+4. Mantenir el bind `0.0.0.0:5002` en paral·lel perquè el botó B1UP (UF-038),
+   que apunta a `http://192.168.11.244:5002/...`, **no es trenqui**.
 
-`max_efectiu` = el max aplicat a l'article (`config.max_sacs` després de
-`_aplicar_criteri_restrictiu`).
+## Pla
 
-## Tasques
+- [x] Auditar l'estat real del servidor (sense SSH: capçaleres HTTP + sondeig de ports)
+- [x] `deploy.sh`: extreure la generació de la unit systemd a una funció reutilitzable
+- [x] `deploy.sh`: nou flag `--reinstall-service` (repetible, idempotent)
+- [x] `deploy.sh`: bind dual (`SAP_BIND_IP:80` + `0.0.0.0:5002`) + `CAP_NET_BIND_SERVICE`
+- [x] `deploy.sh`: `--reinstall-service` garanteix `pip install -r requirements.txt` (gunicorn)
+- [x] Eliminar `deploy/apache/` (descriu una arquitectura inexistent → enganyós)
+- [x] `deploy/README.md` nou: arquitectura real de xarxa del servidor
+- [x] Reescriure `docs/runbook_swap_url_produccio.md` sense Apache (swap = canvi DNS)
+- [x] `docs/peticio_dns_sistemes.md`: text de petició per Sistemes (IP + DNS)
+- [x] `scripts/build_guia_sistemes.py` + `docs/Desplegament_SAP_Sistemes.pdf`
+- [x] `app.py`: fix del servei reiniciat per `/api/admin/actualitzar` (reiniciava Kais!)
+- [x] `tasks/lessons.md`: lliçó L11 sobre identificadors de Kais heretats
+- [x] Actualitzar `tasks/fase2_progress.md`
+- [ ] **Desplegar els 2 commits pendents** — bloquejat: sense accés SSH (veure sota)
 
-- [x] **T1** Implementar RF11 a `regles.py`:
-  - Pre-calcular `total_s05_s10` a `_construir_embalatges`
-  - Passar `aplica_rf11` com a paràmetre a `_determinar_config_article`
-  - Si aplica, override `max_sacs = art_uxc` per S05/S10 (no aplicar `_aplicar_criteri_restrictiu`)
+## Bloqueig: desplegament
 
-- [x] **T2** Implementar RF12 a `regles.py`:
-  - Separar articles en `configs_no_barreja` / `configs_barreja`
-  - Crear palets dedicats per `configs_no_barreja` (flag `es_no_barreja=True`)
-  - Protegir optimitzacions cross-base i micro-palets per excloure aquests palets
-  - Afegit `es_no_barreja: bool = False` a `models.Embalatge`
+`ssh ohijazo@192.168.11.244` → `Permission denied (publickey,password)`. No hi ha
+clau pública instal·lada per aquesta màquina, i l'autenticació per contrasenya és
+interactiva. El desplegament l'ha d'executar l'Oscar o Sistemes amb els
+comandaments del PDF (`docs/Desplegament_SAP_Sistemes.pdf`, apartat 4).
 
-- [x] **T3** Afegir traçabilitat RF11/RF12 (línies "RF11:" i "RF12:" amb branca No aplica)
+Versió desplegada actualment: `1b3c6d6` (15-09-2026).
+Versió a desplegar: `3f266b3`. Commits pendents:
+- `2aed94a` test: cobrir els dos casos en què es tanca una línia palet manual
+- `3f266b3` chore(sap): la BD de test passa a `DB_FARIN_TEST`
 
-- [x] **T4** Actualitzar `CLAUDE.md` (afegides RF11 i RF12 a secció 9)
+## Ordre d'execució al servidor
 
-- [x] **T5** Tests existents: 55/55 passen (cap regressió)
+```bash
+# 1. Codi al dia (git pull + restart del servei actual)
+sudo bash /var/www/comandes-venda-sap/deploy.sh
 
-## Casos a verificar
+# 2. Migrar a Gunicorn mantenint el port 5002 (encara sense la IP .245)
+sudo bash /var/www/comandes-venda-sap/deploy.sh --reinstall-service
 
-| Cas | Article | Sacs | Max | sacs%max | Comportament |
-|---|---|---|---|---|---|
-| 01/0003442 | MEULE T80 | 60 | 30 | 0 | No barreja → 2 palets de 30 |
-| 01/0003442 | PIRINEUS | 80 | 40 | 0 | No barreja → 2 palets de 40 |
-| 01/0003442 | GRAN FORÇA | 40 | 40 | 0 | No barreja → 1 palet de 40 |
-| 51/0003286 (regressió) | 4 articles 39+4+1+1 | 39 | 40 | 39 | Barreja OK → 1 palet de 45 |
-
-## Revisió (08-05-26)
-
-### Verificació funcional
-
-**Cas 01/0003442** (motivació V9): ✓ correcte
+# 3. [Quan Sistemes hagi donat d'alta la IP .245 i el DNS]
+sudo SAP_BIND_IP=192.168.11.245 bash /var/www/comandes-venda-sap/deploy.sh --reinstall-service
 ```
-Palet 1: 33851 (40 sacs)
-Palet 2: 30860 (40 sacs)
-Palet 3: 30860 (40 sacs)
-Palet 4: 30730 MEULE T80 (30 sacs)  ← respecta UxC=30, sense barreja
-Palet 5: 30730 MEULE T80 (30 sacs)  ← respecta UxC=30, sense barreja
-```
 
-**Cas regressió 51/0003286** (39+4+1+1=45): ✓ segueix produint 1 palet barrejat de 45 sacs.
+Els passos 2 i 3 són repetibles: `--reinstall-service` reescriu la unit sencera
+cada cop, així que canviar `SAP_BIND_IP` (o treure'l) és un `--reinstall-service`
+més, sense estat acumulat.
+
+## Revisió
 
 ### Decisions arquitectòniques
 
-- **Interpretació RF12**: `max_efectiu = config.max_sacs` (resultat de `_aplicar_criteri_restrictiu`, és a dir, `min(direcció, UxC, defecte)`). Aquesta és la lectura coherent amb el glossari V9 que defineix Maxim_sacs_palet com "el criteri més restrictiu".
-- **Flag al model**: nou camp `es_no_barreja` a `Embalatge` (en lloc de mantenir un set local) per supervivir als renumeratges de palet i ser comprovat a totes les optimitzacions.
-- **Optimitzacions protegides**: cross-base apilament i micro-palets exclouen palets `es_no_barreja=True`. Les optimitzacions intra-grup ja queden filtrades implícitament pel filter `palet_num >= palet_start`.
-- **RF11 com override**: aplicat *després* de `_aplicar_criteri_restrictiu` perquè la regla és més específica i pot ser més permissiva que la dirección.
+- **IP secundària en lloc de reverse proxy.** Un Apache/nginx al davant hauria
+  obligat a moure el Gunicorn de Kais de `0.0.0.0:80` a `127.0.0.1:5001`, és a
+  dir, a tocar un servei declarat intocable fins novembre 2026 i a obrir una
+  finestra de tall. Amb una IP secundària, els dos Gunicorn conviuen al port 80
+  de **IPs diferents** i Kais no s'assabenta que SAP existeix.
+- **Bind dual durant la convivència.** El botó B1UP apunta a la IP:5002. Fer
+  només `--bind .245:80` l'hauria trencat en silenci. Gunicorn accepta múltiples
+  `--bind`, així que les dues portes conviuen fins que el consultor actualitzi la
+  UF-038; llavors n'hi ha prou amb un `--reinstall-service` sense el 5002.
+- **`CAP_NET_BIND_SERVICE` en lloc de córrer com a root.** El servei segueix sent
+  `www-data`; la capability li dona només el permís de lligar-se a un port < 1024.
+- **`After=network-online.target`.** Sense això, Gunicorn pot arrencar abans que
+  l'àlies `.245` existeixi i morir amb `Cannot assign requested address`. Amb
+  `Restart=always` se'n sortiria igualment, però amb reinicis lletjos al boot.
+- **Esborrar `deploy/apache/` en lloc de deixar-ho documentat com a obsolet.**
+  Documentació que descriu una arquitectura inexistent és pitjor que cap
+  documentació: el runbook ordenava `a2ensite` sobre un Apache que no hi és.
+  L'històric queda a git.
 
 ### Fitxers modificats
 
-- `models.py` — afegit `es_no_barreja` a `Embalatge`
-- `regles.py` — `_determinar_config_article` (RF11), `_construir_embalatges` (RF12 + traces)
-- `CLAUDE.md` — secció 9 amb RF11 i RF12
+- `app.py` — `/api/admin/actualitzar` reiniciava `comandes-venda` (Kais, producció)
+  en lloc de `comandes-venda-sap`; amb botó a la UI i sudoers concedit. Veure L11.
+- `tasks/lessons.md` — L11: identificadors d'infraestructura heretats de Kais
+- `deploy.sh` — funció `write_service_unit()`, flag `--reinstall-service`, bind dual
+- `deploy/apache/` — **eliminat** (arquitectura inexistent)
+- `deploy/README.md` — **nou**, arquitectura real de xarxa
+- `docs/runbook_swap_url_produccio.md` — reescrit sense Apache
+- `docs/peticio_dns_sistemes.md` — **nou**, petició per Sistemes
+- `scripts/build_guia_sistemes.py` — **nou**, generador del PDF
+- `docs/Desplegament_SAP_Sistemes.docx` / `.pdf` — **nous**, guia per Sistemes
+- `tasks/fase2_progress.md` — secció de convivència

@@ -361,5 +361,9 @@ La proposta inicial preveia 3 UDFs a ORDR + worker asíncron. **Substituït per 
 - Estat detallat: `tasks/fase2_progress.md`.
 - Informe consultor amb l'estat final: `docs/informe_consultor_estat_integracio.html` (+ mail `docs/mail_consultor_estat_integracio.md`).
 - Proposta original: `docs/proposta_integracio_sap.docx` (històric).
-- Guia deploy Sistemes: `docs/guia-desplegament-sap.html`.
+- Guia deploy Sistemes: `docs/Desplegament_SAP_Sistemes.pdf` (generada per
+  `scripts/build_guia_sistemes.py`). Substitueix
+  `docs/guia-desplegament-sap.html`, obsoleta des del 2026-09-29 perquè assumia
+  un Apache que al servidor no existeix.
+- Arquitectura de xarxa del servidor: `deploy/README.md`.
 - Guia botó B1UP: `docs/configuracio_b1up_boto_embalatge.md`.

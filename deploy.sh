@@ -2,10 +2,20 @@
 # ==============================================================
 # Script de desplegament - Preparació Comandes Venda **variant SAP**
 # ==============================================================
-# Ús:   sudo bash deploy.sh [--first-install]
+# Ús:   sudo bash deploy.sh [--first-install | --reinstall-service]
 #
-#   --first-install   Primera instal·lació (clona repo, crea venv, servei systemd)
-#   (sense arguments)  Actualitza a l'última versió de GitHub
+#   --first-install      Primera instal·lació (clona repo, crea venv, servei systemd)
+#   --reinstall-service  Reescriu la unit systemd i reinicia (repetible/idempotent).
+#                        Cal per migrar una instal·lació antiga del dev server de
+#                        Flask a Gunicorn, o per canviar els ports on escolta.
+#   (sense arguments)    Actualitza a l'última versió de GitHub
+#
+# Variables d'entorn opcionals:
+#   SAP_BIND_IP   IP secundària del servidor on SAP escolta al port 80
+#                 (ex. 192.168.11.245 → comandes-sap.agrienergia.local).
+#                 Buida = només el port 5002. Veure deploy/README.md.
+#   LEGACY_BIND   Bind heretat que fa servir el botó B1UP per IP directa.
+#                 Per defecte 0.0.0.0:5002.
 #
 # NOTA: aquesta és la variant SAP (port 5002). NO tocar Kais (port 5001,
 # `/var/www/comandes-venda`, servei `comandes-venda.service`).
@@ -25,6 +35,12 @@ APP_PORT=5002
 APP_USER="www-data"
 KAIS_PATH="/var/www/comandes-venda"
 
+# Binds de Gunicorn (veure capçalera i deploy/README.md).
+# `${LEGACY_BIND-...}` sense dos punts: així `LEGACY_BIND=` (buit i explícit)
+# retira el bind heretat, mentre que no declarar-lo agafa el valor per defecte.
+SAP_BIND_IP="${SAP_BIND_IP:-}"
+LEGACY_BIND="${LEGACY_BIND-0.0.0.0:$APP_PORT}"
+
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -38,6 +54,120 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 # ---- Verificar que s'executa com a root ----
 if [ "$EUID" -ne 0 ]; then
     error "Cal executar amb sudo: sudo bash deploy.sh"
+fi
+
+# ==============================================================
+# Unit systemd — font única de veritat
+# ==============================================================
+# Es regenera sencera tant a --first-install com a --reinstall-service: canviar
+# on escolta l'aplicació és sempre el mateix comandament i no queda estat
+# acumulat de desplegaments anteriors.
+#
+# Binds:
+#   $LEGACY_BIND       El botó B1UP (UF-038) hi apunta per IP directa
+#                      (http://192.168.11.244:5002/api/afegir-palets/...).
+#                      Es manté fins que el consultor el reapunti al nom DNS.
+#   $SAP_BIND_IP:80    Opcional. IP secundària del servidor, que dona a SAP una
+#                      URL sense port (comandes-sap.agrienergia.local) sense
+#                      disputar-li el port 80 al Gunicorn de Kais, que escolta a
+#                      la IP principal. Port privilegiat → cal la capability.
+#
+# Workers: POST /api/afegir-palets/<DocEntry> fa múltiples crides HTTP
+# bloquejants a Service Layer (patró GET-modify-PATCH). Amb 2 sync workers, 3
+# usuaris B1UP concurrents saturarien; amb gthread 2×4 obtenim 8 slots
+# concurrents amb un footprint de memòria similar.
+write_service_unit() {
+    local binds=""
+    local caps_block=""
+    local unit_after="network.target"
+    local unit_wants=""
+
+    [ -n "$LEGACY_BIND" ] && binds="--bind $LEGACY_BIND"
+
+    if [ -n "$SAP_BIND_IP" ]; then
+        binds="${binds:+$binds }--bind ${SAP_BIND_IP}:80"
+        # El servei segueix corrent com a www-data; la capability li dona només
+        # el permís de lligar-se a un port < 1024, no privilegis de root.
+        caps_block="AmbientCapabilities=CAP_NET_BIND_SERVICE"
+        # Sense esperar la xarxa, Gunicorn pot arrencar al boot abans que
+        # l'àlies d'IP existeixi i morir amb "Cannot assign requested address".
+        unit_after="network-online.target"
+        unit_wants="Wants=network-online.target"
+    fi
+
+    [ -n "$binds" ] || error "Cap socket configurat: SAP_BIND_IP i LEGACY_BIND són buits alhora."
+
+    info "Escrivint unit systemd (gunicorn $binds)..."
+    cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
+[Unit]
+Description=Motor Preparació Comandes Venda (variant SAP)
+After=$unit_after
+$unit_wants
+
+[Service]
+Type=simple
+User=$APP_USER
+Group=$APP_USER
+WorkingDirectory=$APP_DIR
+Environment=KAIS_APP_PATH=$KAIS_PATH
+Environment=PORT=$APP_PORT
+EnvironmentFile=$APP_DIR/.env
+$caps_block
+ExecStart=$VENV_DIR/bin/gunicorn \\
+    $binds \\
+    --worker-class gthread \\
+    --workers 2 \\
+    --threads 4 \\
+    --timeout 180 \\
+    --graceful-timeout 30 \\
+    --access-logfile $APP_DIR/access.log \\
+    --error-logfile $APP_DIR/error.log \\
+    wsgi:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+    systemctl daemon-reload
+}
+
+# ==============================================================
+# REINSTAL·LACIÓ DEL SERVEI (migració a Gunicorn / canvi de binds)
+# ==============================================================
+if [ "$1" == "--reinstall-service" ]; then
+    info "=== Reinstal·lant el servei systemd ==="
+
+    [ -d "$APP_DIR" ] || error "$APP_DIR no existeix. Executa primer: sudo bash deploy.sh --first-install"
+    [ -d "$VENV_DIR" ] || error "Entorn virtual no trobat a $VENV_DIR"
+
+    # Una instal·lació antiga pot venir del dev server de Flask, on gunicorn
+    # mai es va arribar a instal·lar al venv.
+    info "Assegurant dependències Python (gunicorn inclòs)..."
+    "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt" -q
+
+    if [ -n "$SAP_BIND_IP" ]; then
+        # Avortar aquí és molt millor que deixar Gunicorn en bucle de reinicis.
+        if ! ip -o addr show | grep -q "inet ${SAP_BIND_IP}/"; then
+            error "La IP $SAP_BIND_IP no està configurada en cap interfície d'aquest servidor.
+       Sistemes ha de donar d'alta l'àlies abans (veure deploy/README.md)."
+        fi
+        info "IP secundària $SAP_BIND_IP verificada"
+    fi
+
+    write_service_unit
+    systemctl enable "$SERVICE_NAME" > /dev/null 2>&1 || true
+    systemctl restart "$SERVICE_NAME"
+    sleep 3
+
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+        info "=== Servei reinstal·lat i actiu ==="
+        ss -tlnp 2>/dev/null | grep -i gunicorn || true
+    else
+        error "El servei no ha arrencat. Revisar: sudo journalctl -u $SERVICE_NAME -n 50"
+    fi
+    exit 0
 fi
 
 # ==============================================================
@@ -94,43 +224,8 @@ if [ "$1" == "--first-install" ]; then
     chmod 644 /etc/logrotate.d/comandes-venda-sap
 
     # Crear servei systemd (Gunicorn amb worker-class gthread)
-    #
-    # Justificació dels workers: POST /api/afegir-palets/<DocEntry> fa múltiples
-    # crides HTTP bloquejants a Service Layer (patró GET-modify-PATCH). Amb 2
-    # sync workers, 3 usuaris B1UP concurrents saturarien; amb gthread 2×4
-    # obtenim 8 slots concurrents amb un footprint similar de memòria.
     info "Creant servei systemd (Gunicorn)..."
-    cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
-[Unit]
-Description=Motor Preparació Comandes Venda (variant SAP)
-After=network.target
-
-[Service]
-Type=simple
-User=$APP_USER
-Group=$APP_USER
-WorkingDirectory=$APP_DIR
-Environment=KAIS_APP_PATH=$KAIS_PATH
-Environment=PORT=$APP_PORT
-EnvironmentFile=$APP_DIR/.env
-ExecStart=$VENV_DIR/bin/gunicorn \\
-    --bind 127.0.0.1:$APP_PORT \\
-    --worker-class gthread \\
-    --workers 2 \\
-    --threads 4 \\
-    --timeout 180 \\
-    --graceful-timeout 30 \\
-    --access-logfile $APP_DIR/access.log \\
-    --error-logfile $APP_DIR/error.log \\
-    wsgi:app
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-    systemctl daemon-reload
+    write_service_unit
     systemctl enable "$SERVICE_NAME"
 
     # NO arrenquem automàticament: cal .env preparat primer.
@@ -151,8 +246,9 @@ UNIT
     info "  tail -f $APP_DIR/access.log $APP_DIR/error.log"
     info "  bash $APP_DIR/scripts/smoke_load_test.sh 127.0.0.1:$APP_PORT <DocEntry>"
     info ""
-    info "Swap de la URL comandes.agrienergia.local:"
-    info "  Vegeu docs/runbook_swap_url_produccio.md"
+    info "URL pròpia per SAP (IP secundària, port 80):"
+    info "  sudo SAP_BIND_IP=<IP> bash deploy.sh --reinstall-service"
+    info "  Vegeu deploy/README.md i docs/runbook_swap_url_produccio.md"
     exit 0
 fi
 
@@ -219,4 +315,13 @@ if systemctl is-active --quiet "$SERVICE_NAME"; then
     info "Canvis: git log --oneline $OLD_COMMIT..$NEW_COMMIT"
 else
     error "El servei no ha arrencat correctament. Revisar: sudo journalctl -u $SERVICE_NAME -n 50"
+fi
+
+# Aquest camí NO reescriu la unit systemd a propòsit (un `git pull` no ha de
+# reconfigurar el servei). Però una instal·lació anterior a la migració a
+# Gunicorn es quedaria amb el dev server de Flask per sempre sense avisar.
+if ! grep -q "gunicorn" "/etc/systemd/system/${SERVICE_NAME}.service" 2>/dev/null; then
+    warn ""
+    warn "Aquest servei encara NO corre amb Gunicorn (dev server de Flask)."
+    warn "Migra'l amb: sudo bash $APP_DIR/deploy.sh --reinstall-service"
 fi
