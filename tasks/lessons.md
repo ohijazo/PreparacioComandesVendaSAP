@@ -870,6 +870,11 @@ configuració — i s'ha de provar sota càrrega abans de donar-lo per bo.
 - No cal reconstruir el client si un login falla: `_ensure_session()` torna a
   autenticar quan `_session` és `None`.
 
+### Resultat
+
+Mateix test després de l'arreglo: **8/8 HTTP 200**, el més lent a 3,68 s (abans,
+15,36 s i cinc fallades). El total de les 8 concurrents és 1,7× el warmup, no 8×.
+
 ### Regla per al futur
 
 **Si un recurs remot té sessió, la sessió és un recurs compartit del procés, no

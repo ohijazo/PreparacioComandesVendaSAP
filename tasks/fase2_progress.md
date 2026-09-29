@@ -38,7 +38,7 @@ S'actualitza a cada commit rellevant. Complement a:
 | 2.6 | Deployment amb NSSM + validació end-to-end | ✅ Fet (script + docs; validació esperant consultor) |
 | 2.7 | Fix duplicació de palets i recàlcul obsolet | ✅ Fet (commit `1b3c6d6`) |
 | 2.8 | Gunicorn en producció + swap de la URL a SAP | ✅ Gunicorn fet (`a33c5e0`); swap pendent del DNS de Sistemes |
-| 2.9 | Reutilització de la sessió Service Layer | 🔧 Fet al repo; pendent desplegar i repetir el smoke test |
+| 2.9 | Reutilització de la sessió Service Layer | ✅ Fet i verificat al servidor (commit `7b75380`, smoke test 8/8) |
 
 ---
 
@@ -522,6 +522,26 @@ concurrència real va fer visible un defecte latent.
 - **Comprovat que els tests no són buits**: amb un lock fals (el comportament
   anterior) el test de concurrència dona 5 logins; amb el lock real, 1.
 
-### Pendent
-Desplegar i repetir el smoke test — ha de donar 8/8 HTTP 200. Detall a
+### Verificació al servidor (post-desplegament, commit `7b75380`)
+Mateix smoke test, mateixes 8 comandes, abans i després:
+
+| DocEntry | Abans | Després |
+|---|---|---|
+| 258 | 200 en 2,28 s | 200 en 0,38 s |
+| 252 | 200 en 11,57 s | 200 en 0,69 s |
+| 255 | **502 en 15,27 s** | 200 en 2,40 s |
+| 242 | **502 en 15,25 s** | 200 en 2,69 s |
+| 254 | 200 en 1,96 s | 200 en 2,97 s |
+| 234 | **502 en 15,36 s** | 200 en 3,25 s |
+| 253 | **502 en 15,19 s** | 200 en 3,49 s |
+| 250 | **502 en 15,32 s** | 200 en 3,68 s |
+
+**8/8 HTTP 200**, el més lent a 3,68 s, molt per sota del criteri de 5 s. El
+warmup (2,22 s) inclou el login del primer worker; les dues primeres peticions
+concurrents cauen a 0,38 i 0,69 s perquè ja troben la sessió feta. La resta puja
+en esglaons d'uns 0,25-0,30 s, que és el cost real d'una operació al Service
+Layer un cop serialitzades pel lock del client.
+
+El total de les 8 concurrents (3,68 s) és 1,7× el warmup, no 8×: els dos workers
+treballen en paral·lel i dins de cadascun les crides van en fila. Detall a
 `tasks/lessons.md` L13.
