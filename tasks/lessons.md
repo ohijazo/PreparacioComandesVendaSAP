@@ -800,7 +800,26 @@ sudo apachectl -S                              # els vhosts i el seu ordre
 
 I el corol·lari que fa més mal: **quan una conclusió nova contradiu la
 documentació existent del repo, la hipòtesi per defecte ha de ser que
-m'equivoco jo, no que la documentació és obsoleta.** Aquí el repo descrivia
+m'equivoco jo, no que la documentació és obsoleta.**
+
+### Reincidència el mateix dia (RF11)
+
+Investigant el bug d'apilament de RF4, una exploració estàtica va marcar RF11 com
+a defecte de la mateixa família: assigna `max_sacs = art_uxc` **després** del
+criteri restrictiu, i per tant pot superar el màxim de la direcció. Ho vaig
+traslladar a l'usuari com a problema pendent.
+
+Era fals una altra vegada, i per la mateixa raó: el `CLAUDE.md` descriu RF11
+literalment com a "override sobre la dirección", amb l'exemple del 60190
+(UxC=132, cantidadapilable=11) escrit lletra per lletra. Comprovat amb la comanda
+real `DocEntry 150`, el motor fa exactament això i té sentit físic: el màxim de la
+direcció està expressat en *sacs*, però 132 sacs de 5 kg (660 kg) no són
+comparables amb 32 sacs de 25 kg (800 kg). Aplicar-hi el límit de la direcció
+donaria palets de 160 kg.
+
+**Una troballa d'anàlisi estàtica és una hipòtesi, no un defecte.** Abans
+d'anomenar-la bug: contrastar-la amb la regla documentada i reproduir-la amb una
+comanda real. Costa deu minuts i evita enviar l'usuari a perseguir fantasmes. Aquí el repo descrivia
 Apache + vhosts, que era correcte des del primer dia, i jo vaig esborrar
 fitxers vàlids i vaig marcar una guia bona com a obsoleta perquè em vaig fiar
 més d'una inferència pròpia que d'un document escrit per algú que hi tenia

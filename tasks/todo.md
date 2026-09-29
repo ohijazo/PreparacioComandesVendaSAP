@@ -106,9 +106,23 @@ actualitzarà res fins que `origin/main` avanci.
 Tres defectes més al mateix fitxer, trobats però no tocats (cap explica el cas
 reportat, i tots impliquen tocar més codi compartit):
 
-1. **RF11 supera el màxim de la direcció** (`regles.py:403-404`): assigna
-   `max_sacs = art_uxc` després de `_aplicar_criteri_restrictiu`, així que una
-   direcció amb màxim 40 i un article amb `UxC=45` dona palets de 45.
+1. ~~RF11 supera el màxim de la direcció~~ — **descartat el 29-09-2026**.
+   Comprovat amb la comanda real `DocEntry 150` (`C301094`, direcció amb
+   `MaxSacsPalet=32`, 660 sacs de `60190` amb `TUnitat=S05`, `UxC=132`,
+   `cantidadapilable=11`): dona 5 palets de 132 sacs (12 capes × 11) per al S05 i
+   2 palets de 32 per al S25 de la mateixa comanda. És **exactament** el
+   comportament que documenta el `CLAUDE.md` a RF11, que el descriu com a
+   "override sobre la dirección", i l'exemple del 60190 hi és escrit lletra per
+   lletra.
+
+   I té sentit físic: el màxim de la direcció està expressat en *sacs* però els
+   sacs no són comparables entre formats. 132 sacs de 5 kg són 660 kg; aplicar-hi
+   el límit de 32 sacs — calibrat per a sacs de 25 kg, és a dir 800 kg — donaria
+   un palet de 160 kg. El límit de la direcció es respecta per a l'article S25 de
+   la mateixa comanda, que és on toca.
+
+   La invariant nova **no salta**, i fa bé: compara cada palet amb el seu propi
+   màxim, no amb el de la direcció.
 2. **`art_max_map` fora d'àmbit** (definit a `regles.py:982` dins el bucle de
    grups, usat a `:1332` fora): la comprovació per article dels micro-palets
    queda neutralitzada en comandes multi-base, i si `grups` queda buit hi ha
