@@ -30,17 +30,7 @@
 </head>
 <body>
 
-<div style="border: 3px solid #c53030; background: #fff5f5; padding: 1rem 1.25rem; margin-bottom: 2rem; border-radius: 6px;">
-    <p style="margin: 0 0 0.5rem 0; font-size: 13pt; color: #c53030;"><strong>⚠ DOCUMENT OBSOLET — NO SEGUIR (29/09/2026)</strong></p>
-    <p style="margin: 0 0 0.5rem 0;">Aquesta guia es va escriure assumint que el servidor <code>ae01farwebsrv</code> tenia <strong>Apache com a proxy invers</strong>. El 29/09/2026 es va verificar que <strong>no hi ha Apache ni nginx</strong> al servidor: cada aplicació és un procés Gunicorn escoltant directament al seu socket, i el Gunicorn de Kais ocupa <code>192.168.11.244:80</code>. Tots els passos d'aquest document que parlen de VirtualHosts, <code>a2ensite</code> o <code>apachectl</code> són <strong>inexecutables</strong>.</p>
-    <p style="margin: 0;">Documents vigents:
-        <strong>docs/Desplegament_SAP_Sistemes.pdf</strong> (guia per Sistemes),
-        <strong>deploy/README.md</strong> (arquitectura real de xarxa) i
-        <strong>docs/runbook_swap_url_produccio.md</strong> (procediment detallat).
-        Es conserva aquest fitxer només com a històric.</p>
-</div>
-
-<h1>Guia de Desplegament — Producció <span style="color: #c53030;">(OBSOLETA)</span></h1>
+<h1>Guia de Desplegament — Producció</h1>
 <p style="font-size: 14pt; color: #4a5568; margin-top: -0.5rem;">Motor de Preparació de Comandes de Venda — <strong>variant SAP</strong></p>
 <div class="header-meta">
     Versió 1 — Juliol 2026<br>

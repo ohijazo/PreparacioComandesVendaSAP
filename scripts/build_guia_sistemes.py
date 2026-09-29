@@ -1,11 +1,11 @@
 """Generador de la guia de desplegament per l'equip de Sistemes.
 
-Genera `docs/Desplegament_SAP_Sistemes.docx` (+ `.pdf`) amb tot el que Sistemes
-ha de fer per donar una URL propia a la variant SAP mantenint Kais intacte:
-alta d'IP secundaria, registre DNS, i els comandaments de desplegament.
+Genera `docs/Desplegament_SAP_Sistemes.docx` (+ `.pdf`): que
+`comandes.agrienergia.local` passi a servir la variant SAP, deixant Kais viu en
+paral·lel a `comandes-kais.agrienergia.local`.
 
-Public objectiu: administradors de sistemes, no desenvolupadors. Cada
-comandament va acompanyat de que fa i de com verificar que ha anat be.
+Public objectiu: administradors de sistemes, no desenvolupadors. Cada comandament
+va acompanyat de que fa i de com verificar que ha anat be.
 
 Reutilitza els helpers i la paleta de `build_proposta_sap.py`.
 
@@ -40,10 +40,13 @@ from build_proposta_sap import (  # noqa: E402
 COLOR_AVIS_BG = "FFF4CE"
 COLOR_OK_BG = "E8F5E9"
 
-IP_KAIS = "192.168.11.244"
-IP_SAP = "192.168.11.245"
+IP = "192.168.11.244"
 SERVIDOR = "ae01farwebsrv"
 APP_DIR = "/var/www/comandes-venda-sap"
+URL = "comandes.agrienergia.local"
+URL_KAIS = "comandes-kais.agrienergia.local"
+CONF_SAP = "comandes-venda-sap.conf"
+CONF_KAIS = "comandes-venda.conf"
 
 
 def add_avis(doc, text):
@@ -55,7 +58,6 @@ def add_ok(doc, text):
 
 
 def add_pas(doc, numero, titol):
-    """Capcalera de pas numerat dins d'un procediment."""
     add_heading(doc, f"Pas {numero} — {titol}", level=2)
 
 
@@ -78,11 +80,11 @@ def build_document():
 
     add_para(doc, "GUIA DE DESPLEGAMENT", bold=True, size=24, color=COLOR_TITOL,
              align=WD_ALIGN_PARAGRAPH.CENTER, space_after=4)
-    add_para(doc, "Motor d'Embalatges — variant SAP Business One", bold=True,
+    add_para(doc, "Motor d'Embalatges — pas a les dades de SAP", bold=True,
              size=17, color=COLOR_SUBTITOL, align=WD_ALIGN_PARAGRAPH.CENTER,
              space_after=20)
-    add_para(doc, "Convivència amb l'aplicació actual (Kais) al servidor "
-                  f"{SERVIDOR}", italic=True, size=13, color=COLOR_MUTED,
+    add_para(doc, f"{URL} passa a la versió SAP, amb la de Kais viva en paral·lel",
+             italic=True, size=12.5, color=COLOR_MUTED,
              align=WD_ALIGN_PARAGRAPH.CENTER, space_after=40)
 
     for _ in range(5):
@@ -103,187 +105,190 @@ def build_document():
     add_heading(doc, "1. Resum executiu", level=1)
 
     add_para(doc,
-             "Al servidor " + SERVIDOR + " conviuen dues versions de l'aplicació "
-             "de càlcul d'embalatges de comandes de venda. L'una llegeix les dades "
-             "de Kais i està en producció; l'altra llegeix de SAP Business One i "
-             "s'està validant. Les dues han de seguir funcionant en paral·lel una "
-             "temporada.")
+             f"L'aplicació de càlcul d'embalatges de comandes de venda que els "
+             f"usuaris fan servir a http://{URL}/ llegeix les dades del sistema "
+             "antic (Kais). N'existeix una segona versió, ja desplegada al mateix "
+             "servidor, que llegeix de SAP Business One. Volem que la URL de sempre "
+             "passi a servir aquesta segona versió.")
 
     add_para(doc,
-             "La versió SAP només és accessible ara mateix escrivint la IP i el "
-             f"port (http://{IP_KAIS}:5002/). Aquesta guia explica com donar-li un "
-             "nom propi — comandes-sap.agrienergia.local — sense tocar en absolut "
-             "l'aplicació que està en producció.")
+             "La versió de Kais no s'atura: ha de seguir disponible en paral·lel "
+             "(acord operatiu: viu fins al novembre de 2026). Quedarà accessible a "
+             f"http://{URL_KAIS}/, i serveix també de marxa enrere ràpida si la "
+             "versió SAP dona problemes.")
 
-    add_heading(doc, "Què cal fer, en tres línies", level=2)
-    add_bullet(doc, f"Sistemes: afegir una IP secundària ({IP_SAP}) al servidor i "
-                    "un registre DNS que hi apunti.")
-    add_bullet(doc, "Oscar: executar dos comandaments de desplegament al servidor.")
-    add_bullet(doc, "Tots dos: verificar que les tres URLs responen (apartat 6).")
+    add_ok(doc, "Els usuaris no han de canviar cap enllaç ni cap favorit: la URL "
+                "que tenien segueix sent la bona.")
 
-    add_ok(doc, "L'aplicació en producció (Kais) no es reinicia, no es "
-                "reconfigura i no canvia de port ni d'adreça. Aquest és el criteri "
-                "que ha guiat tot el disseny.")
+    add_heading(doc, "El canvi, en una frase", level=2)
+    add_para(doc,
+             "Les dues aplicacions ja conviuen al mateix servidor darrere del mateix "
+             "Apache, cadascuna amb el seu VirtualHost. Fer el canvi és moure el nom "
+             "de host d'un VirtualHost a l'altre i recarregar Apache.")
 
-    add_heading(doc, "Temps i risc", level=2)
+    add_info_box(doc,
+                 f"No hi ha canvi de DNS per a la URL principal. {URL} ja apunta a "
+                 f"{IP} i s'hi queda: les dues aplicacions viuen a la mateixa IP i "
+                 "és Apache qui decideix quina serveix cada nom.")
+
+    add_heading(doc, "Repartiment de la feina", level=2)
     add_taula(doc,
-              ["Tasca", "Responsable", "Temps", "Risc per producció"],
+              ["Tasca", "Responsable", "Temps", "Estat"],
               [
-                  ["Alta IP secundària (netplan)", "Sistemes", "5 min", "Cap"],
-                  ["Registre DNS", "Sistemes", "5 min", "Cap"],
-                  ["Desplegament del codi", "Oscar", "2 min", "Cap"],
-                  ["Migració a Gunicorn", "Oscar", "3 min", "Cap (només app SAP)"],
-                  ["Verificació conjunta", "Tots dos", "5 min", "Cap"],
+                  [f"Registre DNS {URL_KAIS} (apartat 3)", "Sistemes", "5 min",
+                   "Pendent"],
+                  ["Desplegar el codi al dia", "Oscar", "2 min", "Fet 29/09"],
+                  ["Migrar de Flask dev server a Gunicorn", "Oscar", "3 min",
+                   "Fet 29/09"],
+                  ["Backup config Apache + smoke test", "Oscar", "10 min",
+                   "Pendent"],
+                  ["Finestra del canvi (apartat 4)", "Oscar", "10 min",
+                   "Pendent del DNS"],
+                  ["Verificació conjunta (apartat 5)", "Tots dos", "5 min",
+                   "Pendent"],
               ],
               amples=[6.5, 3.0, 2.0, 4.5])
 
+    add_para(doc,
+             "La finestra del canvi es programa fora d'hores actives (abans de les "
+             "9 h o després de les 18 h) i es comunica als usuaris com un "
+             "manteniment de ~5 minuts.")
+
     add_page_break(doc)
 
-    # ================= 2. ESTAT ACTUAL =================
-    add_heading(doc, "2. Estat actual del servidor", level=1)
+    # ================= 2. ARQUITECTURA =================
+    add_heading(doc, "2. Com està muntat el servidor", level=1)
 
     add_para(doc,
-             "Estat verificat el 29/09/2026 sondejant el servidor des de la xarxa "
-             "(capçaleres HTTP i ports oberts). Convé llegir-lo perquè hi ha dues "
-             "coses que no són com la documentació anterior deia.")
+             "Apache fa de proxy invers al port 80 amb VirtualHosts per nom. Cada "
+             "aplicació és un procés Gunicorn escoltant a 127.0.0.1 al seu port, i "
+             "Apache l'encamina segons el nom de host de la petició. Al servidor hi "
+             "conviuen cinc aplicacions més la variant SAP.")
 
-    add_heading(doc, "No hi ha cap reverse proxy", level=2)
-    add_para(doc,
-             "No hi ha Apache ni nginx instal·lat i actiu. Cada aplicació és un "
-             "procés Gunicorn que escolta directament al seu socket. Com que no hi "
-             f"ha encaminament per nom de host, qualsevol petició que arribi a "
-             f"{IP_KAIS}:80 la contesta l'aplicació de Kais, independentment del "
-             "nom que s'hagi fet servir per arribar-hi.")
-
-    add_heading(doc, "Ports oberts ara mateix", level=2)
-    add_taula(doc,
-              ["Socket", "Aplicació", "Servidor web", "Accés"],
-              [
-                  [f"{IP_KAIS}:80", "Kais (producció)", "gunicorn",
-                   "comandes.agrienergia.local"],
-                  ["0.0.0.0:5002", "SAP (validació)", "Flask dev server",
-                   f"http://{IP_KAIS}:5002/"],
-              ],
-              amples=[4.0, 4.5, 3.5, 4.5])
-
-    add_para(doc,
-             "Els ports 443, 5001, 8000 i 8080 estan tancats des de la xarxa.")
-
-    add_avis(doc, "La versió SAP corre amb el servidor de desenvolupament de "
-                  "Flask, que no està pensat per a producció (un sol procés, sense "
-                  "gestió de concurrència). Aquest desplegament ho corregeix "
-                  "passant-la a Gunicorn, el mateix que ja fa servir Kais.")
-
-    add_heading(doc, "Com quedarà després del desplegament", level=2)
+    add_heading(doc, "Ara", level=2)
     add_code_block(doc,
-                   f"""                      {SERVIDOR}
-                      ---------------------------------
+                   f"""                 Apache  *:80  (NameVirtualHost)
+                 ---------------------------------
+  agrupacions.agrienergia.local --> agrupacio-carregues.conf   (default)
+  {URL} -----> {CONF_KAIS}      --> 127.0.0.1:5001  Kais
+  fitxesfc.agrienergia.local ------> fitxes-tecniques.conf
+  labfc.agrienergia.local ---------> labfc.conf
+  visitesfc.agrienergia.local -----> visites.conf
 
-  comandes.agrienergia.local ----> {IP_KAIS}:80  ----> gunicorn  Kais
-                                                       (sense cap canvi)
+  (cap nom encara) ----------------> {CONF_SAP}  --> 127.0.0.1:5002  SAP""")
 
-  comandes-sap.agrienergia.local > {IP_SAP}:80  ----> gunicorn  SAP
-                                                       (nou)
-  Botó de SAP B1 (B1UP) --------> {IP_KAIS}:5002 ----> gunicorn  SAP
-                                                       (es manté)""")
+    add_heading(doc, "Després", level=2)
+    add_code_block(doc,
+                   f"""  {URL} -----> {CONF_SAP}  --> 127.0.0.1:5002  SAP
+  {URL_KAIS} > {CONF_KAIS}      --> 127.0.0.1:5001  Kais""")
 
     add_para(doc,
-             "Els dos Gunicorn escolten al port 80 d'IPs diferents, per tant no es "
-             "disputen res. És tot el motiu de demanar una IP secundària: evitar "
-             "haver de tocar Kais.")
+             "Les altres quatre aplicacions del servidor no es veuen afectades de "
+             "cap manera.", size=10, color=COLOR_MUTED)
+
+    add_heading(doc, "Estat de la versió SAP", level=2)
+    add_taula(doc,
+              ["Element", "Valor"],
+              [
+                  ["Servei systemd", "comandes-venda-sap.service"],
+                  ["Servidor web", "Gunicorn (gthread, 2 processos × 4 fils)"],
+                  ["Socket", "0.0.0.0:5002"],
+                  ["Directori", APP_DIR],
+                  ["VirtualHost d'Apache", f"{CONF_SAP} (preparat, no activat)"],
+              ],
+              amples=[5.0, 11.0])
+
+    add_para(doc,
+             "El socket és 0.0.0.0 i no 127.0.0.1 perquè el botó «Calcular "
+             f"embalatges» de SAP Business One crida http://{IP}:5002/ per IP "
+             "directa. Aquesta via ha de seguir funcionant durant i després del "
+             "canvi; veure l'apartat 8.")
 
     add_page_break(doc)
 
-    # ================= 3. PETICIÓ A SISTEMES =================
+    # ================= 3. PETICIÓ =================
     add_heading(doc, "3. Què demanem a Sistemes", level=1)
 
-    add_heading(doc, "3.1 Una IP lliure de la VLAN, al mateix servidor", level=2)
-    add_para(doc,
-             f"Proposem {IP_SAP} si està lliure; qualsevol altra de la mateixa "
-             "VLAN serveix igual (caldria avisar-nos del canvi). No és una màquina "
-             "nova: és una segona adreça de la interfície que ja existeix.")
+    add_para(doc, "Un sol registre DNS, per al nom secundari de la versió Kais:")
 
-    add_code_block(doc,
-                   """# /etc/netplan/*.yaml — afegir la segona adreça
-      addresses:
-        - %s/24
-        - %s/24      # <-- nova, per a l'app SAP""" % (IP_KAIS, IP_SAP))
-
-    add_code_block(doc, "sudo netplan apply")
-
-    add_para(doc, "Verificació:")
-    add_code_block(doc, f"ip -o addr show | grep {IP_SAP}")
-    add_para(doc, "Ha de retornar una línia. Si no retorna res, la IP no s'ha "
-                  "aplicat.", size=10, color=COLOR_MUTED)
-
-    add_heading(doc, "3.2 Un registre DNS", level=2)
     add_taula(doc,
               ["Nom", "Tipus", "Valor", "TTL"],
-              [["comandes-sap.agrienergia.local", "A", IP_SAP, "300"]],
+              [[URL_KAIS, "A", IP, "300"]],
               amples=[7.5, 2.0, 4.0, 2.5])
 
     add_para(doc,
-             "El TTL curt (300 segons) és perquè més endavant, quan la versió SAP "
-             "substitueixi definitivament l'actual, el canvi serà només de DNS i "
-             "volem poder revertir-lo en minuts si cal.")
+             f"És la mateixa IP que ja fa servir {URL}. El TTL curt (300 s) és per "
+             "poder ajustar ràpid si cal.")
 
-    add_heading(doc, "3.3 Què NO cal fer", level=2)
-    add_bullet(doc, "No cal tocar el registre comandes.agrienergia.local: ha de "
-                    f"seguir apuntant a {IP_KAIS} (producció).")
-    add_bullet(doc, "No cal obrir ports al tallafocs: és tràfic HTTP intern al "
-                    "port 80, el mateix que ja fa servir l'aplicació actual.")
-    add_bullet(doc, "No cal reiniciar ni reconfigurar comandes-venda.service "
-                    "(producció Kais).")
-    add_bullet(doc, "No cal instal·lar Apache ni nginx.")
+    add_heading(doc, "Què NO cal fer", level=2)
+    add_bullet(doc, f"No cal tocar el registre {URL}: ha de seguir apuntant a {IP} "
+                    "exactament com ara. El que canvia és quin VirtualHost el "
+                    "serveix, i això és configuració d'Apache, no DNS.")
+    add_bullet(doc, "No cal cap IP nova ni cap canvi a la configuració de xarxa.")
+    add_bullet(doc, "No cal obrir ports al tallafocs: és el port 80 que Apache ja "
+                    "fa servir.")
+    add_bullet(doc, "No cal aturar ni reconfigurar el servei de la versió Kais "
+                    "(comandes-venda.service). Segueix corrent igual.")
+
+    add_para(doc,
+             f"Si podeu, confirmeu també que el TTL de {URL} és de 300 s o menys. No "
+             "el canviem, però si algun dia cal moure'l voldríem propagació ràpida.")
+
+    add_para(doc, "Verificació un cop donat d'alta:")
+    add_code_block(doc, f"nslookup {URL_KAIS}")
 
     add_page_break(doc)
 
-    # ================= 4. DESPLEGAMENT =================
-    add_heading(doc, "4. Desplegament al servidor", level=1)
+    # ================= 4. EL CANVI =================
+    add_heading(doc, "4. La finestra del canvi", level=1)
 
     add_para(doc,
-             "Aquests passos els executa l'Oscar per SSH, o Sistemes si cal fer-ho "
-             "sense ell. Tots afecten únicament el servei comandes-venda-sap.")
+             "Procediment que executa l'Oscar per SSH al servidor. Es documenta "
+             "perquè Sistemes el pugui seguir o repetir. Duració ~10 min, marxa "
+             "enrere < 5 min.")
 
-    add_avis(doc, "Ordre important: els passos 1 i 2 es poden fer ja, sense esperar "
-                  "la IP. El pas 3 requereix que la IP secundària estigui activa, "
-                  "i avorta amb un error clar si no ho està.")
+    add_pas(doc, 0, "Abans de començar")
+    add_code_block(doc, """sudo tar czf /root/apache-backup-$(date +%F).tgz \\
+    /etc/apache2/sites-available /etc/apache2/sites-enabled
+systemctl status comandes-venda-sap""")
 
-    add_pas(doc, 1, "Actualitzar el codi a l'última versió")
-    add_code_block(doc, f"sudo bash {APP_DIR}/deploy.sh")
+    add_pas(doc, 1, "Copiar el VirtualHost de la versió SAP")
+    add_code_block(doc, f"""sudo cp {APP_DIR}/deploy/apache/{CONF_SAP} \\
+    /etc/apache2/sites-available/""")
+    add_para(doc, f"Aquest fitxer ja porta «ServerName {URL}» i el proxy cap al "
+                  "port 5002.", size=10, color=COLOR_MUTED)
+
+    add_pas(doc, 2, "Rebatejar el VirtualHost de la versió Kais")
+    add_code_block(doc, f"sudo nano /etc/apache2/sites-available/{CONF_KAIS}")
+    add_para(doc, "Dos canvis:")
+    add_bullet(doc, f"Canviar «ServerName {URL}» per «ServerName {URL_KAIS}».")
+    add_bullet(doc, f"Afegir just a sota, temporalment: «ServerAlias {URL}».")
     add_para(doc,
-             "Fa git pull del repositori i reinicia el servei. Al final avisa si el "
-             "servei encara corre amb el servidor de desenvolupament de Flask.",
-             size=10, color=COLOR_MUTED)
+             "L'alias temporal fa que durant els segons entre els dos «reload» els "
+             "dos VirtualHosts responguin al nom antic, de manera que cap petició en "
+             "curs es perdi. Amb dos VirtualHosts pel mateix nom guanya el que "
+             f"Apache carrega primer: «{CONF_SAP}» va abans que «{CONF_KAIS}» per "
+             "ordre alfabètic, o sigui la versió SAP.", size=10, color=COLOR_MUTED)
 
-    add_pas(doc, 2, "Migrar a Gunicorn")
-    add_code_block(doc, f"sudo bash {APP_DIR}/deploy.sh --reinstall-service")
-    add_para(doc,
-             "Reescriu la definició del servei systemd sencera i el reinicia amb "
-             "Gunicorn (2 processos × 4 fils). Encara escolta només al port 5002, "
-             "de manera que el botó de SAP B1 segueix funcionant igual.",
-             size=10, color=COLOR_MUTED)
+    add_pas(doc, 3, "Validar i activar")
+    add_code_block(doc, f"""sudo apachectl configtest
+sudo a2ensite {CONF_SAP}
+sudo systemctl reload apache2
+sudo apachectl -S | grep comandes""")
 
-    add_pas(doc, 3, "Afegir la IP secundària al port 80")
-    add_code_block(doc,
-                   f"sudo SAP_BIND_IP={IP_SAP} bash {APP_DIR}/deploy.sh --reinstall-service")
-    add_para(doc,
-             "Ara Gunicorn escolta a dos sockets alhora: el nou "
-             f"{IP_SAP}:80 per als usuaris, i {IP_KAIS}:5002 per al botó de SAP B1, "
-             "que hi apunta per IP directa i no s'ha de trencar.",
-             size=10, color=COLOR_MUTED)
+    add_avis(doc, "Si «apachectl configtest» no diu «Syntax OK», NO continuar. Un "
+                  "«reload» amb configuració invàlida deixa Apache servint la "
+                  "configuració antiga, però un «restart» posterior el tombaria i "
+                  "s'emportaria les altres cinc aplicacions del servidor.")
 
-    add_info_box(doc,
-                 "Els passos 2 i 3 són repetibles tantes vegades com calgui: "
-                 "reescriuen sempre la definició sencera del servei, així que no "
-                 "queda estat acumulat de desplegaments anteriors.")
+    add_para(doc, "Es fa «reload» i no «restart» precisament per no tallar "
+                  "connexions actives de cap de les aplicacions.", size=10,
+             color=COLOR_MUTED)
 
-    add_heading(doc, "Per què el port 80 sense ser root", level=2)
-    add_para(doc,
-             "El servei segueix corrent amb l'usuari www-data, no com a root. Per "
-             "poder lligar-se a un port privilegiat (< 1024) la definició del "
-             "servei inclou la capability mínima necessària:")
-    add_code_block(doc, "AmbientCapabilities=CAP_NET_BIND_SERVICE")
+    add_pas(doc, 4, "Retirar l'alias temporal")
+    add_code_block(doc, f"""sudo nano /etc/apache2/sites-available/{CONF_KAIS}
+# esborrar la línia: ServerAlias {URL}
+sudo apachectl configtest && sudo systemctl reload apache2""")
 
     add_page_break(doc)
 
@@ -291,27 +296,21 @@ def build_document():
     add_heading(doc, "5. Verificació", level=1)
 
     add_heading(doc, "5.1 Al servidor", level=2)
-    add_code_block(doc, f"""systemctl status comandes-venda-sap      # Active (running)
-ss -tlnp | grep -i gunicorn             # {IP_SAP}:80 i 0.0.0.0:5002
-curl -sS -D - -o /dev/null http://{IP_SAP}/""")
-    add_para(doc, "L'última ordre ha de mostrar «Server: gunicorn». Si mostra "
-                  "«Server: Werkzeug», la migració del pas 2 no s'ha aplicat.",
-             size=10, color=COLOR_MUTED)
+    add_code_block(doc, f"""curl -sS -H "Host: {URL}" http://127.0.0.1/ajuda | head -20
+curl -sS -H "Host: {URL_KAIS}" http://127.0.0.1/ | head -20""")
 
     add_heading(doc, "5.2 Des d'un PC Windows de la xarxa", level=2)
-    add_code_block(doc, """curl.exe http://comandes-sap.agrienergia.local/ajuda
-curl.exe http://comandes.agrienergia.local/
-curl.exe http://%s:5002/api/admin/versio""" % IP_KAIS)
+    add_code_block(doc, f"""ipconfig /flushdns
+curl.exe http://{URL}/ajuda
+curl.exe http://{URL_KAIS}/
+curl.exe http://{IP}:5002/api/admin/versio""")
 
     add_taula(doc,
               ["Comprovació", "Resultat esperat"],
               [
-                  ["comandes-sap.agrienergia.local",
-                   "HTML de l'aplicació SAP (títol amb «(SAP)»)"],
-                  ["comandes.agrienergia.local",
-                   "HTML de Kais, exactament com abans"],
-                  [f"{IP_KAIS}:5002/api/admin/versio",
-                   "JSON amb el commit desplegat"],
+                  [URL, "HTML de la versió SAP (el títol porta «(SAP)»)"],
+                  [URL_KAIS, "HTML de la versió Kais, funcionant com sempre"],
+                  [f"{IP}:5002/api/admin/versio", "JSON amb el commit desplegat"],
               ],
               amples=[6.5, 9.5])
 
@@ -326,46 +325,72 @@ curl.exe http://%s:5002/api/admin/versio""" % IP_KAIS)
     add_bullet(doc, "Comprovar el missatge d'èxit a la barra d'estat.")
     add_bullet(doc, "Comprovar que apareixen les línies de palet a la comanda.")
 
-    add_page_break(doc)
-
     # ================= 6. ROLLBACK =================
     add_heading(doc, "6. Marxa enrere", level=1)
 
     add_para(doc,
-             "Kais no es toca en cap moment del procediment, per tant no té marxa "
-             "enrere ni la necessita. Tot el que es pot desfer afecta només "
-             "l'aplicació SAP.")
+             "Criteri per fer-la: errors 502/504 repetits a la URL principal, "
+             "errors de Python al log del servei, o el consultor comunica que el "
+             "botó de SAP falla sistemàticament.")
 
-    add_heading(doc, "Retirar el bind del port 80", level=2)
-    add_code_block(doc, f"sudo bash {APP_DIR}/deploy.sh --reinstall-service")
-    add_para(doc,
-             "Sense la variable SAP_BIND_IP, el servei torna a escoltar només al "
-             "port 5002. La URL comandes-sap.agrienergia.local deixa de respondre; "
-             "el botó de SAP B1 segueix funcionant.", size=10, color=COLOR_MUTED)
+    add_code_block(doc, f"""# 1. Desactivar el VirtualHost de la versió SAP
+sudo a2dissite {CONF_SAP}
 
-    add_heading(doc, "Si el servei no arrenca", level=2)
-    add_code_block(doc, """sudo journalctl -u comandes-venda-sap -n 50
-sudo tail -50 %s/error.log""" % APP_DIR)
+# 2. Tornar el nom original al VirtualHost de Kais
+sudo nano /etc/apache2/sites-available/{CONF_KAIS}
+#    ServerName {URL_KAIS}  ->  ServerName {URL}
+
+# 3. Recarregar i verificar
+sudo apachectl configtest && sudo systemctl reload apache2
+curl -sS -H "Host: {URL}" http://127.0.0.1/ | head -20""")
+
+    add_ok(doc, "La versió Kais no s'ha tocat en cap moment: el seu servei, el seu "
+                "port i les seves dades són els mateixos abans i després. Per això "
+                "la marxa enrere és només un canvi de nom a Apache.")
+
+    add_heading(doc, "Diagnòstic", level=2)
+    add_code_block(doc, f"""sudo journalctl -u comandes-venda-sap -n 50
+sudo tail -50 {APP_DIR}/error.log
+sudo tail -50 /var/log/apache2/comandes-venda-sap-error.log""")
 
     add_taula(doc,
-              ["Símptoma al log", "Causa", "Solució"],
+              ["Símptoma", "Causa", "Solució"],
               [
-                  ["Cannot assign requested address",
-                   f"La IP {IP_SAP} no està activa al servidor",
-                   "Aplicar el netplan (apartat 3.1)"],
-                  ["Permission denied (port 80)",
-                   "Falta la capability a la definició del servei",
-                   "Repetir el pas 3 del desplegament"],
-                  ["Address already in use",
-                   "Un altre procés té el socket ocupat",
-                   "ss -tlnp | grep :80 per veure qui és"],
+                  ["502 / 503 al navegador",
+                   "Gunicorn aturat o no escolta al 5002",
+                   "systemctl status comandes-venda-sap"],
+                  ["La URL serveix encara la versió Kais",
+                   "El VirtualHost no està activat o Apache no s'ha recarregat",
+                   "sudo apachectl -S | grep comandes"],
+                  ["«Syntax error» al configtest",
+                   "Error al fitxer del VirtualHost",
+                   "No recarregar; revisar el fitxer"],
+                  [f"{URL_KAIS} no resol",
+                   "El registre DNS no està donat d'alta o propagat",
+                   f"nslookup {URL_KAIS}"],
                   ["ModuleNotFoundError: gunicorn",
                    "El venv no té gunicorn instal·lat",
-                   "El pas 2 ja l'instal·la; repetir-lo"],
+                   f"sudo bash {APP_DIR}/deploy.sh --reinstall-service"],
               ],
               amples=[4.5, 5.5, 6.0])
 
+    add_page_break(doc)
+
+    # ================= 7. MANTENIMENT =================
     add_heading(doc, "7. Manteniment", level=1)
+
+    add_heading(doc, "Actualitzar l'aplicació", level=2)
+    add_code_block(doc, f"""# Codi al dia (git pull + reinici del servei)
+sudo bash {APP_DIR}/deploy.sh
+
+# Reescriure la definició del servei systemd. Repetible i idempotent.
+sudo bash {APP_DIR}/deploy.sh --reinstall-service""")
+
+    add_para(doc,
+             "El segon comandament existeix perquè el primer no toca la definició "
+             "del servei. Per això l'aplicació havia quedat mesos amb el servidor de "
+             "desenvolupament de Flask tot i que el repositori ja definia Gunicorn: "
+             "cap actualització hi arribava.", size=10, color=COLOR_MUTED)
 
     add_heading(doc, "Comandaments habituals", level=2)
     add_code_block(doc, """sudo systemctl status comandes-venda-sap
@@ -375,59 +400,67 @@ sudo tail -f %s/access.log %s/error.log""" % (APP_DIR, APP_DIR))
 
     add_heading(doc, "Logs i rotació", level=2)
     add_para(doc,
-             f"Els logs viuen a {APP_DIR}/access.log i error.log, amb rotació "
-             "setmanal i 4 setmanes de retenció "
-             "(/etc/logrotate.d/comandes-venda-sap). Comprovació el dilluns:")
+             f"Els logs de Gunicorn viuen a {APP_DIR}/access.log i error.log, amb "
+             "rotació setmanal i 4 setmanes de retenció "
+             "(/etc/logrotate.d/comandes-venda-sap). Els d'Apache, a "
+             "/var/log/apache2/comandes-venda-sap-*.log. Comprovació el dilluns:")
     add_code_block(doc, f"ls -la {APP_DIR}/*.log*")
     add_para(doc, "Els fitxers de la setmana anterior han de tenir extensió .1.gz.",
              size=10, color=COLOR_MUTED)
 
-    add_heading(doc, "Els dos serveis del servidor", level=2)
+    add_heading(doc, "Les dues aplicacions d'embalatges", level=2)
     add_taula(doc,
-              ["Aplicació", "Servei systemd", "Directori"],
+              ["Versió", "Servei systemd", "Port intern", "Directori"],
               [
-                  ["Kais (producció)", "comandes-venda.service",
+                  ["Kais", "comandes-venda.service", "5001",
                    "/var/www/comandes-venda"],
-                  ["SAP (validació)", "comandes-venda-sap.service", APP_DIR],
+                  ["SAP", "comandes-venda-sap.service", "5002", APP_DIR],
               ],
-              amples=[4.0, 6.0, 6.0])
+              amples=[2.5, 5.5, 2.5, 5.5])
 
-    add_avis(doc, "El servei comandes-venda.service és l'aplicació en producció i "
-                  "ha de quedar intacte fins al novembre de 2026. Cap pas d'aquesta "
-                  "guia el toca.")
+    add_avis(doc, "El servei comandes-venda.service (versió Kais) ha de quedar "
+                  "operatiu fins al novembre de 2026. Cap pas d'aquesta guia el "
+                  "toca ni l'atura.")
 
-    # ================= 8. FUTUR =================
-    add_heading(doc, "8. Què vindrà després (informatiu)", level=1)
+    # ================= 8. BOTÓ B1UP =================
+    add_heading(doc, "8. El botó de SAP Business One", level=1)
 
     add_para(doc,
-             "Quan la versió SAP hagi acumulat prou temps de funcionament normal, "
-             "es plantejarà que hereti la URL històrica. Amb aquesta arquitectura, "
-             "aquell canvi serà només de DNS: no caldrà tocar cap servei ni cap "
-             "port al servidor.")
+             "Dins de SAP Business One, al formulari Comanda de venda, hi ha un botó "
+             "«Calcular embalatges» (configurat amb B1UP) que crida l'aplicació per "
+             f"HTTP a http://{IP}:5002/api/afegir-palets/.")
 
-    add_taula(doc,
-              ["Registre", "Abans", "Després"],
-              [
-                  ["comandes.agrienergia.local", IP_KAIS, IP_SAP],
-                  ["comandes-kais.agrienergia.local", "—", IP_KAIS + " (nou)"],
-                  ["comandes-sap.agrienergia.local", IP_SAP, "sense canvis"],
-              ],
-              amples=[7.0, 4.5, 4.5])
+    add_ok(doc, "El canvi d'aquesta guia no l'afecta: crida l'aplicació per IP i "
+                "port directes, no per nom, i aquesta via segueix oberta. Tampoc "
+                "l'afecta la marxa enrere. No cal coordinar el consultor de B1UP per "
+                "fer el canvi.")
 
     add_para(doc,
-             "La marxa enrere seria revertir el registre, amb una propagació de ~5 "
-             "minuts gràcies al TTL curt. Aquesta operació no forma part d'aquest "
-             "desplegament; es demanarà per separat.")
+             "Si algun dia es vol treure la IP del codi de B1UP, la manera segura és "
+             "donar a la versió SAP un nom propi addicional "
+             "(comandes-sap.agrienergia.local, un registre DNS més cap a la mateixa "
+             f"IP) i afegir-lo com a ServerAlias al seu VirtualHost. Fer servir {URL} "
+             "seria pitjor: el botó quedaria lligat a qui tingui la URL històrica en "
+             "cada moment i una marxa enrere el faria caure contra la versió Kais, "
+             "que no té aquest endpoint.")
+
+    add_para(doc,
+             "Un cop el botó no depengui de la IP directa, es pot tancar Gunicorn "
+             "darrere d'Apache, que és la configuració desitjable:")
+    add_code_block(doc,
+                   f"sudo BIND_ADDR=127.0.0.1:5002 bash {APP_DIR}/deploy.sh --reinstall-service")
+    add_para(doc, "Res d'això bloqueja el canvi; és feina posterior i opcional.",
+             size=10, color=COLOR_MUTED)
 
     # ================= CONTACTES =================
     add_heading(doc, "Contacte", level=1)
     add_para(doc, "Oscar Hijazo — ohijazo@agrienergia.com", bold=True)
     add_para(doc,
-             "Documentació tècnica completa al repositori de l'aplicació: "
-             "deploy/README.md (arquitectura de xarxa), "
-             "docs/runbook_swap_url_produccio.md (procediment detallat), "
-             "docs/peticio_dns_sistemes.md (aquesta petició en text pla).",
-             size=10, color=COLOR_MUTED)
+             "Documentació tècnica al repositori de l'aplicació: deploy/README.md "
+             "(arquitectura de xarxa del servidor), "
+             "docs/runbook_swap_url_produccio.md (procediment detallat amb la "
+             "finestra i el rollback), docs/peticio_dns_sistemes.md (la petició de "
+             "l'apartat 3 en text pla).", size=10, color=COLOR_MUTED)
 
     return doc
 

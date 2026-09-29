@@ -11,11 +11,10 @@
 #   (sense arguments)    Actualitza a l'última versió de GitHub
 #
 # Variables d'entorn opcionals:
-#   SAP_BIND_IP   IP secundària del servidor on SAP escolta al port 80
-#                 (ex. 192.168.11.245 → comandes-sap.agrienergia.local).
-#                 Buida = només el port 5002. Veure deploy/README.md.
-#   LEGACY_BIND   Bind heretat que fa servir el botó B1UP per IP directa.
-#                 Per defecte 0.0.0.0:5002.
+#   BIND_ADDR     Socket de Gunicorn. Per defecte `0.0.0.0:5002`, perquè el botó
+#                 B1UP (UF-038) hi apunta per IP directa. Un cop el consultor el
+#                 reapunti al nom DNS, passar a `127.0.0.1:5002` per no exposar
+#                 Gunicorn fora d'Apache. Veure deploy/README.md.
 #
 # NOTA: aquesta és la variant SAP (port 5002). NO tocar Kais (port 5001,
 # `/var/www/comandes-venda`, servei `comandes-venda.service`).
@@ -35,11 +34,8 @@ APP_PORT=5002
 APP_USER="www-data"
 KAIS_PATH="/var/www/comandes-venda"
 
-# Binds de Gunicorn (veure capçalera i deploy/README.md).
-# `${LEGACY_BIND-...}` sense dos punts: així `LEGACY_BIND=` (buit i explícit)
-# retira el bind heretat, mentre que no declarar-lo agafa el valor per defecte.
-SAP_BIND_IP="${SAP_BIND_IP:-}"
-LEGACY_BIND="${LEGACY_BIND-0.0.0.0:$APP_PORT}"
+# Socket de Gunicorn (veure capçalera i deploy/README.md)
+BIND_ADDR="${BIND_ADDR:-0.0.0.0:$APP_PORT}"
 
 # Colors
 GREEN='\033[0;32m'
@@ -61,48 +57,20 @@ fi
 # ==============================================================
 # Es regenera sencera tant a --first-install com a --reinstall-service: canviar
 # on escolta l'aplicació és sempre el mateix comandament i no queda estat
-# acumulat de desplegaments anteriors.
-#
-# Binds:
-#   $LEGACY_BIND       El botó B1UP (UF-038) hi apunta per IP directa
-#                      (http://192.168.11.244:5002/api/afegir-palets/...).
-#                      Es manté fins que el consultor el reapunti al nom DNS.
-#   $SAP_BIND_IP:80    Opcional. IP secundària del servidor, que dona a SAP una
-#                      URL sense port (comandes-sap.agrienergia.local) sense
-#                      disputar-li el port 80 al Gunicorn de Kais, que escolta a
-#                      la IP principal. Port privilegiat → cal la capability.
+# acumulat de desplegaments anteriors. Cal aquest camí perquè l'actualització
+# normal (git pull + restart) NO reescriu la unit: per això el servidor es va
+# quedar amb el dev server de Flask tot i que el repo ja definia Gunicorn.
 #
 # Workers: POST /api/afegir-palets/<DocEntry> fa múltiples crides HTTP
 # bloquejants a Service Layer (patró GET-modify-PATCH). Amb 2 sync workers, 3
 # usuaris B1UP concurrents saturarien; amb gthread 2×4 obtenim 8 slots
 # concurrents amb un footprint de memòria similar.
 write_service_unit() {
-    local binds=""
-    local caps_block=""
-    local unit_after="network.target"
-    local unit_wants=""
-
-    [ -n "$LEGACY_BIND" ] && binds="--bind $LEGACY_BIND"
-
-    if [ -n "$SAP_BIND_IP" ]; then
-        binds="${binds:+$binds }--bind ${SAP_BIND_IP}:80"
-        # El servei segueix corrent com a www-data; la capability li dona només
-        # el permís de lligar-se a un port < 1024, no privilegis de root.
-        caps_block="AmbientCapabilities=CAP_NET_BIND_SERVICE"
-        # Sense esperar la xarxa, Gunicorn pot arrencar al boot abans que
-        # l'àlies d'IP existeixi i morir amb "Cannot assign requested address".
-        unit_after="network-online.target"
-        unit_wants="Wants=network-online.target"
-    fi
-
-    [ -n "$binds" ] || error "Cap socket configurat: SAP_BIND_IP i LEGACY_BIND són buits alhora."
-
-    info "Escrivint unit systemd (gunicorn $binds)..."
+    info "Escrivint unit systemd (gunicorn --bind $BIND_ADDR)..."
     cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
 [Unit]
 Description=Motor Preparació Comandes Venda (variant SAP)
-After=$unit_after
-$unit_wants
+After=network.target
 
 [Service]
 Type=simple
@@ -112,9 +80,8 @@ WorkingDirectory=$APP_DIR
 Environment=KAIS_APP_PATH=$KAIS_PATH
 Environment=PORT=$APP_PORT
 EnvironmentFile=$APP_DIR/.env
-$caps_block
 ExecStart=$VENV_DIR/bin/gunicorn \\
-    $binds \\
+    --bind $BIND_ADDR \\
     --worker-class gthread \\
     --workers 2 \\
     --threads 4 \\
@@ -146,15 +113,6 @@ if [ "$1" == "--reinstall-service" ]; then
     # mai es va arribar a instal·lar al venv.
     info "Assegurant dependències Python (gunicorn inclòs)..."
     "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt" -q
-
-    if [ -n "$SAP_BIND_IP" ]; then
-        # Avortar aquí és molt millor que deixar Gunicorn en bucle de reinicis.
-        if ! ip -o addr show | grep -q "inet ${SAP_BIND_IP}/"; then
-            error "La IP $SAP_BIND_IP no està configurada en cap interfície d'aquest servidor.
-       Sistemes ha de donar d'alta l'àlies abans (veure deploy/README.md)."
-        fi
-        info "IP secundària $SAP_BIND_IP verificada"
-    fi
 
     write_service_unit
     systemctl enable "$SERVICE_NAME" > /dev/null 2>&1 || true
@@ -246,8 +204,7 @@ if [ "$1" == "--first-install" ]; then
     info "  tail -f $APP_DIR/access.log $APP_DIR/error.log"
     info "  bash $APP_DIR/scripts/smoke_load_test.sh 127.0.0.1:$APP_PORT <DocEntry>"
     info ""
-    info "URL pròpia per SAP (IP secundària, port 80):"
-    info "  sudo SAP_BIND_IP=<IP> bash deploy.sh --reinstall-service"
+    info "URL pròpia per SAP (vhost d'Apache al port 80):"
     info "  Vegeu deploy/README.md i docs/runbook_swap_url_produccio.md"
     exit 0
 fi

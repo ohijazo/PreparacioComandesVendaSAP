@@ -37,7 +37,7 @@ S'actualitza a cada commit rellevant. Complement a:
 | 2.5 | Endpoint admin monitoratge | ✅ Fet |
 | 2.6 | Deployment amb NSSM + validació end-to-end | ✅ Fet (script + docs; validació esperant consultor) |
 | 2.7 | Fix duplicació de palets i recàlcul obsolet | ✅ Fet (commit `1b3c6d6`) |
-| 2.8 | Convivència Kais+SAP amb URL pròpia per SAP | 🔧 Repo llest; pendent IP/DNS de Sistemes |
+| 2.8 | Gunicorn en producció + swap de la URL a SAP | ✅ Gunicorn fet (`a33c5e0`); swap pendent del DNS de Sistemes |
 
 ---
 
@@ -385,98 +385,91 @@ referència, no s'aplica sol.
 
 ---
 
-## §2.8 Convivència Kais + SAP amb URL pròpia per SAP (2026-09-29)
+
+## §2.8 Producció: Gunicorn + swap de la URL a SAP (2026-09-29)
 
 ### Objectiu
-Donar a la variant SAP una URL amigable (`comandes-sap.agrienergia.local`) durant
-el període de convivència amb Kais, sense tocar gens l'aplicació en producció, i
-desplegar els 2 commits pendents al servidor.
+1. Desplegar els commits pendents i treure l'app del dev server de Flask.
+2. Preparar que `comandes.agrienergia.local` passi a servir la variant SAP,
+   deixant Kais viu en paral·lel a `comandes-kais.agrienergia.local`.
 
-### Descoberta: el repo documentava una arquitectura inexistent
-Auditant el servidor `ae01farwebsrv` abans de desplegar (sondeig de capçaleres
-HTTP i ports, sense SSH):
+### Fet i verificat al servidor
+- `sudo bash deploy.sh` → `1b3c6d6` → `a33c5e0` (5 commits).
+- `sudo bash deploy.sh --reinstall-service` → Gunicorn gthread 2×4 a
+  `0.0.0.0:5002`. Verificat des de fora: `Server: gunicorn` i
+  `/api/admin/versio` retorna `a33c5e0`.
 
-| Assumpció al repo | Realitat |
-|---|---|
-| Apache reverse proxy al port 80 amb vhosts per nom | **No hi ha Apache.** El Gunicorn de Kais escolta a `0.0.0.0:80` i respon a qualsevol `Host` |
-| SAP amb Gunicorn a `127.0.0.1:5002` | SAP amb el **dev server de Flask** (`Server: Werkzeug/3.1.7`) a `0.0.0.0:5002` |
-| Kais al port 5001 | 5001 tancat des de fora; només 80 i 5002 oberts |
+**Causa arrel del dev server**: el camí d'actualització de `deploy.sh` fa
+`git pull` + `systemctl restart` però **no reescriu la unit systemd**. La
+definició amb Gunicorn només es creava a `--first-install` i el servidor es va
+instal·lar abans que existís, així que cap `deploy.sh` hi arribava mai. D'aquí el
+flag nou `--reinstall-service`.
 
-**Causa arrel del segon punt**: el camí d'actualització de `deploy.sh` fa
-`git pull` + `systemctl restart` però **mai reescriu la unit systemd**. La unit
-amb Gunicorn només es creava a `--first-install`, i el servidor es va instal·lar
-abans que existís. Un `deploy.sh` darrere l'altre no hi arribava mai.
+### Bug de producció trobat pel camí
+`/api/admin/actualitzar` a `app.py` feia
+`sudo systemctl restart comandes-venda` — el servei de **Kais**, no
+`comandes-venda-sap`. Identificador heretat de la còpia des de la variant Kais.
+No era codi mort: `templates/ajuda.html` té un botó que crida l'endpoint, i la
+guia de Kais documenta el `sudoers` que concedeix exactament aquest permís a
+`www-data`. Clicar "actualitzar" des de SAP reiniciava producció i deixava SAP
+amb el codi antic, retornant `"restart": "ok"`. Veure `tasks/lessons.md` L11.
 
-Conseqüència: `deploy/apache/*.conf` i la Fase B del runbook de swap ordenaven
-`a2ensite`/`apachectl` sobre un Apache que no hi és — passos inexecutables.
+### Error propi: vaig concloure que no hi havia Apache
+Auditant el servidor només des de fora (capçaleres HTTP + sondeig de ports) vaig
+concloure que no hi havia reverse proxy i que el Gunicorn de Kais ocupava
+`0.0.0.0:80`. Sobre aquesta base vaig redissenyar la convivència amb una IP
+secundària i `CAP_NET_BIND_SERVICE`, vaig **esborrar** `deploy/apache/`, vaig
+marcar `docs/guia-desplegament-sap.html` com a obsoleta i vaig generar un PDF
+demanant a Sistemes una IP que no calia.
 
-### Decisió: IP secundària en lloc de reverse proxy
+Era fals. Hi ha Apache al port 80 amb vhosts per nom, i Kais escolta a
+`127.0.0.1:5001` — exactament el que el repo ja documentava. Les dues proves que
+em van enganyar (la capçalera `Server: gunicorn` i un `Host` inexistent servit per
+Kais) no demostraven res; el detall a `tasks/lessons.md` L12. Tot revertit: les
+configs d'Apache recuperades, la guia HTML vàlida un altre cop.
+
+### Topologia real (verificada amb `apachectl -S` i `ss -tlnp`)
 ```
-192.168.11.244:80   → Kais  (comandes.agrienergia.local)      ← intacte
-192.168.11.245:80   → SAP   (comandes-sap.agrienergia.local)  ← nou
-0.0.0.0:5002        → SAP   (botó B1UP per IP directa)        ← es manté
+Apache *:80 (NameVirtualHost)
+  agrupacions.agrienergia.local → agrupacio-carregues.conf   ← default server
+  comandes.agrienergia.local    → comandes-venda.conf  → 127.0.0.1:5001  Kais
+  fitxesfc / labfc / visitesfc  → els seus vhosts
+  (cap nom encara)              → comandes-venda-sap.conf → 127.0.0.1:5002  SAP
 ```
-Un Apache al davant hauria obligat a moure el Gunicorn de Kais a
-`127.0.0.1:5001`, és a dir, a tocar un servei declarat intocable fins al novembre
-de 2026 i a obrir una finestra de tall. Amb dues IPs, els dos Gunicorn conviuen al
-port 80 d'adreces diferents i Kais no s'assabenta que SAP existeix.
 
-**Bind dual durant la convivència**: el botó B1UP apunta a `IP:5002`. Fer només
-`--bind .245:80` l'hauria trencat en silenci. Gunicorn accepta múltiples `--bind`,
-així que les dues portes conviuen fins que el consultor reapunti la UF-038.
+### El swap és més senzill del que semblava
+`comandes.agrienergia.local` **ja apunta a `192.168.11.244` i no s'ha de tocar**:
+les dues apps viuen a la mateixa IP i és Apache qui decideix quina serveix cada
+nom. El swap és moure el `ServerName` d'un vhost a l'altre i un
+`systemctl reload apache2`. Kais no s'atura ni es reconfigura.
 
-### Canvis
-- **`app.py`** — **bug de producció trobat pel camí**: `/api/admin/actualitzar`
-  feia `sudo systemctl restart comandes-venda`, el servei de **Kais**, no
-  `comandes-venda-sap`. I hi ha un botó a `templates/ajuda.html` que crida
-  l'endpoint, més un `sudoers` documentat a la guia de Kais que concedeix
-  exactament aquest permís a `www-data`. Clicar "actualitzar" des de SAP
-  reiniciava producció i deixava SAP amb el codi antic, retornant
-  `"restart": "ok"`. Veure `tasks/lessons.md` L11.
-- **`deploy.sh`** — generació de la unit systemd extreta a `write_service_unit()`
-  (font única de veritat, cridada tant per `--first-install` com pel flag nou);
-  flag nou `--reinstall-service`, repetible i idempotent, que reescriu la unit
-  sencera i garanteix `pip install -r requirements.txt` (una instal·lació antiga
-  no té gunicorn al venv); bind dual configurable via `SAP_BIND_IP` i
-  `LEGACY_BIND`; `AmbientCapabilities=CAP_NET_BIND_SERVICE` i
-  `After/Wants=network-online.target` només quan hi ha bind al port 80;
-  comprovació prèvia que la IP secundària existeix (avortar amb missatge clar és
-  molt millor que deixar Gunicorn en bucle de reinicis); avís al final del camí
-  d'actualització si la unit encara no fa servir Gunicorn.
-- **`deploy/apache/`** — **eliminat**. Documentació que descriu una arquitectura
-  inexistent és pitjor que cap documentació. L'històric queda a git.
-- **`deploy/README.md`** — nou. Arquitectura real de xarxa, ports, prerequisit de
-  l'àlies d'IP i per què s'ha descartat el reverse proxy.
-- **`docs/runbook_swap_url_produccio.md`** — reescrit. Fase 1 (convivència) i Fase
-  2 (swap, que ara és només un canvi de DNS, sense tocar cap servei).
-- **`docs/peticio_dns_sistemes.md`** — nou. Text de petició per Sistemes.
+A Sistemes només se li demana **un registre DNS**:
+`comandes-kais.agrienergia.local` → la mateixa `192.168.11.244`.
+
+### Canvis al repo
+- **`app.py`** — fix del servei reiniciat per `/api/admin/actualitzar`.
+- **`deploy.sh`** — `write_service_unit()` com a font única de la unit (cridada
+  per `--first-install` i pel flag nou), flag `--reinstall-service` repetible i
+  idempotent que garanteix `pip install -r requirements.txt`, socket via
+  `BIND_ADDR` (per defecte `0.0.0.0:5002`), i avís al final de l'actualització si
+  la unit encara no fa servir Gunicorn.
+- **`deploy/README.md`** — nou: topologia real d'Apache, estat objectiu del swap,
+  i per què el bind és `0.0.0.0` (el botó B1UP hi apunta per IP directa).
+- **`docs/runbook_swap_url_produccio.md`** — el de sempre, amb el prerequisit
+  actualitzat (Gunicorn ja fet; el socket ha de quedar a `0.0.0.0` mentre la
+  UF-038 depengui de la IP) i el pas B.7 reescrit: **no tocar el botó B1UP**, i si
+  algun dia es vol, fer-ho amb un nom propi de SAP i no amb la URL històrica —
+  així un rollback no el trenca.
+- **`docs/peticio_dns_sistemes.md`** — nou: petició d'un registre DNS.
 - **`scripts/build_guia_sistemes.py`** + **`docs/Desplegament_SAP_Sistemes.pdf`** —
-  nous. Guia de 8 pàgines per Sistemes: estat actual, petició, desplegament pas a
-  pas, verificació, taula de diagnòstic i marxa enrere.
-
-### Detalls que van costar
-- `LEGACY_BIND="${LEGACY_BIND:-...}"` amb dos punts tractava el buit explícit com
-  a no declarat, així que `LEGACY_BIND=` no podia retirar el bind heretat (i
-  generava `--bind ` sense valor). Corregit a `${LEGACY_BIND-...}` + construcció
-  condicional dels binds + error si tots dos són buits.
-- `CAP_NET_BIND_SERVICE` permet escoltar al port 80 seguint com a `www-data`, sense
-  passar el servei a root.
-
-### Verificació
-- `bash -n deploy.sh` → sintaxi OK.
-- Unit generada provada en 4 modes (només 5002 / dual / només `.245:80` / els dos
-  binds buits): els tres primers produeixen l'`ExecStart` correcte i el quart
-  avorta amb error explícit.
-- PDF generat i revisat: 8 pàgines, diagrama de xarxa i taules correctes.
+  nous: guia de 10 pàgines per Sistemes (arquitectura abans/després, petició,
+  finestra pas a pas, verificació, rollback, diagnòstic, manteniment, botó B1UP).
+- **`tasks/lessons.md`** — L11 (identificadors heretats de Kais) i L12 (no deduir
+  l'arquitectura d'un servidor des de fora).
 
 ### Pendent operatiu
-1. **Sistemes**: alta d'IP `192.168.11.245` (netplan) + DNS
-   `comandes-sap.agrienergia.local` TTL 300.
-2. **Desplegament dels 5 commits pendents** — el servidor corre `1b3c6d6` i el
-   repo va per `ea3a30a` (`1ff399d`, `2aed94a`, `3f266b3`, `dad8ebf`, `ea3a30a`).
-   No s'ha pogut fer des d'aquí: `ssh ohijazo@192.168.11.244` →
-   `Permission denied (publickey,password)`. L'ha d'executar l'Oscar.
-3. Un cop la IP existeixi: `sudo SAP_BIND_IP=192.168.11.245 bash deploy.sh
-   --reinstall-service`.
-4. **Consultor B1UP** (opcional, sense urgència): reapuntar la UF-038 a
-   `http://comandes-sap.agrienergia.local/api/afegir-palets/`.
+1. **Sistemes**: DNS `comandes-kais.agrienergia.local` → `192.168.11.244`, TTL 300.
+2. Backup de la config d'Apache i smoke load test amb Gunicorn.
+3. Finestra del swap seguint la Fase B del runbook (~10 min, fora d'hores).
+4. Opcional i posterior: DNS `comandes-sap.agrienergia.local` + `ServerAlias` +
+   UF-038 al nom nou + `BIND_ADDR=127.0.0.1:5002`.

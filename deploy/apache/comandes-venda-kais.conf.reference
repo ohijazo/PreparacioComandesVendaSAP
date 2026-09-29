@@ -1,0 +1,39 @@
+# =============================================================================
+# REFERÈNCIA — VirtualHost Kais rebatejat a URL fallback
+# =============================================================================
+# Aquest fitxer NO es desplega automàticament. Serveix de plantilla i de
+# checklist per modificar in-place el VirtualHost Kais existent al servidor
+# durant el swap.
+#
+# Fitxer real al servidor: /etc/apache2/sites-available/comandes-venda.conf
+# (propietat de la variant Kais, repo P:\preparacioComandesVenda — intocable
+# des d'aquest repo, però la config Apache d'Ubuntu no forma part del repo Kais
+# i és responsabilitat d'operacions).
+#
+# Canvis a fer durant el swap (vegeu docs/runbook_swap_url_produccio.md):
+#   - ServerName: comandes.agrienergia.local → comandes-kais.agrienergia.local
+#   - Durant la finestra de swap, afegir temporalment:
+#         ServerAlias comandes.agrienergia.local
+#     perquè Apache no dropi peticions in-flight mentre s'activa el VirtualHost
+#     SAP nou. Eliminar aquest ServerAlias després.
+# =============================================================================
+
+<VirtualHost *:80>
+    ServerName comandes-kais.agrienergia.local
+    # ServerAlias comandes.agrienergia.local   # només temporal durant el swap
+
+    AllowEncodedSlashes NoDecode
+
+    ProxyPreserveHost On
+    ProxyPass / http://127.0.0.1:5001/ nocanon
+    ProxyPassReverse / http://127.0.0.1:5001/
+
+    Alias /static/ /var/www/comandes-venda/static/
+    <Directory /var/www/comandes-venda/static/>
+        Require all granted
+        Options -Indexes
+    </Directory>
+
+    ErrorLog ${APACHE_LOG_DIR}/comandes-venda-error.log
+    CustomLog ${APACHE_LOG_DIR}/comandes-venda-access.log combined
+</VirtualHost>

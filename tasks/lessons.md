@@ -747,3 +747,62 @@ Tot el que surti a `app.py`, `motor.py`, `consultes.py`, `templates/` o
 Corol·lari més general: **un identificador d'infraestructura dins d'un string no
 el protegeix ni el compilador ni els tests**. Els 124 tests passaven amb aquest
 bug a dins i hi haurien seguit passant.
+
+---
+
+## L12 — La capçalera `Server` no diu si hi ha un reverse proxy al davant
+
+### Context
+
+El 29-09-2026, auditant el servidor abans d'un desplegament, vaig concloure que
+`ae01farwebsrv` **no tenia Apache** i que cada app era un Gunicorn escoltant
+directament al port 80. Sobre aquesta conclusió vaig redissenyar la convivència
+Kais+SAP (IP secundària, `CAP_NET_BIND_SERVICE`), vaig **esborrar** les configs
+d'Apache del repo, vaig marcar la guia de desplegament com a obsoleta i vaig
+generar un PDF per Sistemes demanant una IP que no calia.
+
+Tot era fals. Hi havia Apache:
+
+```
+LISTEN *:80   users:(("apache2",pid=2445960,...))
+```
+
+### Les dues proves que em van enganyar
+
+**1. `Server: gunicorn` al port 80.** Vaig assumir que Apache sobreescriu la
+capçalera `Server` de les respostes que proxifica. **No ho fa**: `mod_proxy`
+deixa passar la del backend tal com ve. Apache només posa la seva pròpia
+capçalera a les respostes que genera ell mateix (404 propis, pàgines d'error,
+etc.). Per tant `Server: gunicorn` és perfectament compatible amb tenir Apache
+al davant, i no distingeix entre "no hi ha proxy" i "hi ha proxy transparent".
+
+**2. Un `Host` inexistent retornava Kais.** Ho vaig llegir com "no hi ha
+encaminament per nom". Però és exactament el que fa Apache amb un `Host` que no
+casa cap `ServerName`: el serveix el **primer vhost que carrega**, que aquí és
+el de Kais. La prova no discrimina res.
+
+Què ho hauria resolt a la primera: `curl -I` a una **ruta inexistent**
+(`/xyz-no-existeix`) hauria retornat el 404 generat per Apache amb
+`Server: Apache/2.4.x`. Jo vaig provar una ruta inexistent però l'app hi
+responia amb un 302 cap a `/login`, i el 302 ve del backend.
+
+### Regla per al futur
+
+**No deduir l'arquitectura d'un servidor des de fora.** Les capçaleres HTTP i el
+sondeig de ports diuen què respon, no com està muntat. Abans de redissenyar res
+que depengui de la topologia, demanar les tres ordres que ho tanquen:
+
+```bash
+sudo ss -tlnp | grep -E ':80 '                 # qui té el port realment
+ls -d /etc/apache2 /etc/nginx /etc/haproxy     # què hi ha instal·lat
+sudo apachectl -S                              # els vhosts i el seu ordre
+```
+
+I el corol·lari que fa més mal: **quan una conclusió nova contradiu la
+documentació existent del repo, la hipòtesi per defecte ha de ser que
+m'equivoco jo, no que la documentació és obsoleta.** Aquí el repo descrivia
+Apache + vhosts, que era correcte des del primer dia, i jo vaig esborrar
+fitxers vàlids i vaig marcar una guia bona com a obsoleta perquè em vaig fiar
+més d'una inferència pròpia que d'un document escrit per algú que hi tenia
+accés. Esborrar documentació exigeix el mateix nivell de prova que desplegar
+codi.
