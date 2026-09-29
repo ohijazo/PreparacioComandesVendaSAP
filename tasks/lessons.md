@@ -806,3 +806,77 @@ fitxers vàlids i vaig marcar una guia bona com a obsoleta perquè em vaig fiar
 més d'una inferència pròpia que d'un document escrit per algú que hi tenia
 accés. Esborrar documentació exigeix el mateix nivell de prova que desplegar
 codi.
+
+---
+
+## L13 — Un client de sessió per petició no escala: el Service Layer no aguanta logins en paral·lel
+
+### Context
+
+El 29-09-2026, just després de migrar l'app de SAP del dev server de Flask a
+Gunicorn (`gthread 2×4`), un smoke test de 8 peticions concurrents contra
+`POST /api/afegir-palets/` va donar:
+
+```
+DocEntry 254 → HTTP 200 en  1.96s
+DocEntry 258 → HTTP 200 en  2.28s
+DocEntry 252 → HTTP 200 en 11.57s
+DocEntry 253 → HTTP 502 en 15.19s
+DocEntry 242 → HTTP 502 en 15.25s
+DocEntry 255 → HTTP 502 en 15.27s
+DocEntry 250 → HTTP 502 en 15.32s
+DocEntry 234 → HTTP 502 en 15.36s
+```
+
+Al log:
+
+```
+[ERROR] afegir-palets(253) SL error: Fallada de xarxa al login:
+HTTPSConnectionPool(host='192.168.11.238', port=50000):
+Read timed out. (read timeout=15)
+```
+
+### Causa
+
+`app.py` feia `with _sl_client() as sl:` a cada petició. El context manager de
+`SLClient` fa `login()` a l'entrada i `logout()` a la sortida, o sigui **un
+`POST /Login` al Service Layer per cada clic del botó B1UP**. Amb concurrència
+real, 8 logins simultanis: el Service Layer de SAP no hi arriba, els que no
+entren venen als 15 s (`SAP_SL_TIMEOUT`), `login()` embolcalla el timeout dins
+`SLLoginError` — subclasse d'`SLError` — i l'endpoint el tradueix a 502.
+
+La ironia: `SLClient` estava escrit per viure molt, amb renovació preventiva de
+sessió als 25 minuts a `_ensure_session()`. Creant-ne un per petició, aquella
+lògica no s'executava mai i cada clic pagava un login sencer.
+
+### Per què no s'havia vist abans
+
+El dev server de Flask serialitzava les peticions, així que mai n'hi havia dues
+alhora al Service Layer. **La migració a Gunicorn no va crear el defecte: el va
+fer visible.** Qualsevol canvi que introdueixi concurrència de debò en un sistema
+que no en tenia s'ha de tractar com un canvi funcional, no com un canvi de
+configuració — i s'ha de provar sota càrrega abans de donar-lo per bo.
+
+### Solució
+
+- **Un `SLClient` per procés**, reutilitzat entre peticions (`app._sl_client()`
+  amb double-checked locking). Ara hi ha tantes sessions com workers de Gunicorn,
+  estables, en lloc d'un login per clic.
+- **`RLock` dins del client** que serialitza el seu ús. Protegeix dues coses: que
+  `requests.Session` no és thread-safe i que `_ensure_session()` muta l'estat de
+  sessió; i que `replace_marked_lines` és un read-modify-write (GET línies →
+  decidir → PATCH) que dos fils podrien travessar alhora i escriure línies
+  duplicades — el bug de L9 / commit `1b3c6d6` per una altra porta.
+- No cal reconstruir el client si un login falla: `_ensure_session()` torna a
+  autenticar quan `_session` és `None`.
+
+### Regla per al futur
+
+**Si un recurs remot té sessió, la sessió és un recurs compartit del procés, no
+de la petició.** Login per petició és un antipatró: multiplica la latència, gasta
+llicències i converteix qualsevol pic de concurrència en errors.
+
+I el corol·lari de mètode: el smoke test de càrrega no era un trànsit burocràtic.
+S'havia de passar **abans** d'obrir la URL als usuaris, i va trobar en 15 segons
+un defecte que hauria aparegut com a "de vegades el botó dona error" impossible
+de reproduir a mà.

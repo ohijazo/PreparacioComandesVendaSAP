@@ -8,20 +8,30 @@ Encapsula:
 - Sincronització idempotent de línies palet a `/Orders({DocEntry})` amb el
   patró in-place `replace_marked_lines()`.
 
-Ús típic (des de `app.py:api_afegir_palets`):
-    with SLClient(url, company, user, pwd) as sl:
-        stats = sl.replace_marked_lines(
-            doc_entry,
-            marker_field="U_FCAfegit",
-            marker_value="S",
-            new_lines=[{"ItemCode": "01030", "Quantity": 2, ...}],
-        )
+Ús típic (des de `app.py:api_afegir_palets`): **una instància per procés,
+reutilitzada entre peticions** — no una per petició. Veure `app.py:_sl_client`.
+
+    sl = _sl_client()               # singleton del procés
+    stats = sl.replace_marked_lines(
+        doc_entry,
+        marker_field="U_FCAfegit",
+        marker_value="S",
+        new_lines=[{"ItemCode": "01030", "Quantity": 2, ...}],
+    )
+
+El context manager (`with SLClient(...) as sl:`) segueix existint per a scripts i
+tests de curta durada, però **no s'ha de fer servir des del servidor web**: fa
+login a l'entrada i logout a la sortida, i per tant paga un login per petició.
+El 29-09-2026 això va provocar 502 en un smoke test de 8 peticions concurrents —
+el Service Layer no aguanta 8 logins simultanis i cinc van vèncer als 15 s
+(`Read timed out`). Veure `tasks/lessons.md` L13.
 
 Configuració via `.env` (variables `SAP_SL_*`).
 """
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any
 
@@ -77,6 +87,23 @@ class SLClient:
 
         self._session: requests.Session | None = None
         self._session_ts: float | None = None
+
+        # Serialitza l'ús del client entre fils. Reentrant perquè les
+        # operacions de negoci (`replace_marked_lines`) el prenen i després
+        # criden `_request`, que el torna a prendre.
+        #
+        # Protegeix dues coses:
+        # 1. `requests.Session` no és thread-safe, i `_ensure_session()` muta
+        #    `self._session` (relogin preventiu, relogin per 401).
+        # 2. `replace_marked_lines` és un read-modify-write sobre les línies de
+        #    la comanda: sense el lock, dos fils podrien llegir el mateix estat
+        #    i escriure línies duplicades — el bug del commit 1b3c6d6.
+        #
+        # El preu és que les crides al Service Layer d'un mateix procés es fan
+        # d'una en una. No és una pèrdua real: el Service Layer de SAP tampoc
+        # les paral·lelitza bé, i amb diversos workers de Gunicorn segueix
+        # havent-hi tanta concurrència com workers.
+        self._lock = threading.RLock()
 
     # ------------------------------------------------------------------
     # Context manager
@@ -162,6 +189,13 @@ class SLClient:
           sobre Orders sovint falla amb error -1116 "Could not commit
           transaction" perquè SAP intenta commit del document complet.
         """
+        with self._lock:
+            return self._request_locked(method, path, json_body)
+
+    def _request_locked(
+        self, method: str, path: str, json_body: Any = None
+    ) -> requests.Response:
+        """Cos de `_request`. Assumeix `self._lock` ja pres."""
         self._ensure_session()
         assert self._session is not None
         full_url = f"{self.url}/{path.lstrip('/')}"
@@ -309,7 +343,27 @@ class SLClient:
         Retorna `{"removed": T, "updated": U, "added": A, "kept": K}`.
 
         Raises `SLError` si alguna crida falla.
+
+        L'operació sencera es fa sota el lock del client: és un read-modify-write
+        (GET línies → decidir → PATCH) i dos fils que el travessessin alhora
+        podrien llegir el mateix estat i escriure línies duplicades.
         """
+        with self._lock:
+            return self._replace_marked_lines_locked(
+                doc_entry, marker_field, marker_value, new_lines,
+                header_fields, owned_item_codes,
+            )
+
+    def _replace_marked_lines_locked(
+        self,
+        doc_entry: int,
+        marker_field: str,
+        marker_value: str,
+        new_lines: list[dict[str, Any]],
+        header_fields: dict[str, Any] | None = None,
+        owned_item_codes: set[str] | None = None,
+    ) -> dict[str, int]:
+        """Cos de `replace_marked_lines`. Assumeix `self._lock` ja pres."""
         # 1. GET línies actuals
         resp = self._request(
             "GET",

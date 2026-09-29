@@ -250,3 +250,134 @@ def test_patch_order_envia_payload_correcte():
     assert patch_call.url == f"{URL}/Orders(1234)"
     body = json.loads(patch_call.body)
     assert body == payload
+
+
+# ============================================================
+# Reutilització de sessió i seguretat entre fils
+# ============================================================
+# Context: fins al 29-09-2026 `app.py` creava un SLClient per petició amb
+# `with SLClient(...)`, o sigui un login i un logout per cada clic del botó
+# B1UP. Amb Gunicorn servint peticions de debò en paral·lel, un smoke test de 8
+# concurrents va deixar 5 respostes 502: el Service Layer no aguanta 8 logins
+# simultanis i vencien als 15 s. Ara el client és un singleton per procés i
+# serialitza el seu ús amb un RLock. Veure `tasks/lessons.md` L13.
+
+@responses.activate
+def test_peticions_successives_reutilitzen_la_sessio():
+    """Un sol login per moltes peticions: el cas que abans costava un login cada cop."""
+    responses.add(responses.POST, f"{URL}/Login", json={}, status=200)
+    for _ in range(5):
+        responses.add(responses.PATCH, f"{URL}/Orders(1)", status=204)
+
+    c = _make_client()
+    for _ in range(5):
+        c.patch_order(1, {"U_FCAfegit": "S"})
+
+    logins = [call for call in responses.calls if call.request.url == f"{URL}/Login"]
+    assert len(logins) == 1, "s'hauria de fer login una sola vegada"
+
+
+def test_request_concurrent_fa_un_sol_login():
+    """N fils alhora sobre el mateix client → un únic login, no N."""
+    import threading
+
+    c = _make_client()
+    logins = []
+    barrera = threading.Barrier(6)
+
+    def fake_login():
+        # Simula la latència real del login per maximitzar la finestra de cursa.
+        time.sleep(0.05)
+        logins.append(1)
+        c._session = object()          # qualsevol cosa no-None
+        c._session_ts = time.monotonic()
+
+    def fake_request_locked(method, path, json_body=None):
+        c._ensure_session()
+        return "ok"
+
+    with patch.object(c, "login", side_effect=fake_login), \
+         patch.object(c, "_request_locked", side_effect=fake_request_locked):
+        def worker():
+            barrera.wait()             # tots els fils surten alhora
+            c._request("GET", "Orders(1)")
+
+        fils = [threading.Thread(target=worker) for _ in range(5)]
+        for f in fils:
+            f.start()
+        barrera.wait()
+        for f in fils:
+            f.join(timeout=5)
+
+    assert len(logins) == 1, f"esperava 1 login, n'hi ha hagut {len(logins)}"
+
+
+def test_replace_marked_lines_no_interleaving_entre_fils():
+    """El read-modify-write de les línies és atòmic per client.
+
+    Sense el lock, dos fils podrien fer el GET abans que cap hagués fet el
+    PATCH, llegir el mateix estat i escriure línies duplicades — el bug del
+    commit 1b3c6d6.
+    """
+    import threading
+
+    c = _make_client()
+    c._session = object()
+    c._session_ts = time.monotonic()
+
+    traça: list[str] = []
+    traça_lock = threading.Lock()
+
+    def fake_locked(doc_entry, *a, **kw):
+        with traça_lock:
+            traça.append(f"inici-{doc_entry}")
+        time.sleep(0.05)               # finestra ampla per interleaving
+        with traça_lock:
+            traça.append(f"fi-{doc_entry}")
+        return {"added": 0, "updated": 0, "removed": 0, "kept": 0}
+
+    with patch.object(c, "_replace_marked_lines_locked", side_effect=fake_locked):
+        fils = [
+            threading.Thread(
+                target=c.replace_marked_lines,
+                args=(n, "U_FCAfegit", "S", []),
+            )
+            for n in range(1, 4)
+        ]
+        for f in fils:
+            f.start()
+        for f in fils:
+            f.join(timeout=5)
+
+    # Cada inici ha d'anar seguit del seu propi fi: cap solapament.
+    assert len(traça) == 6, traça
+    for i in range(0, 6, 2):
+        doc = traça[i].split("-")[1]
+        assert traça[i] == f"inici-{doc}", traça
+        assert traça[i + 1] == f"fi-{doc}", traça
+
+
+def test_app_reutilitza_el_mateix_client_entre_peticions():
+    """`app._sl_client()` ha de retornar sempre la mateixa instància."""
+    import os
+
+    entorn = {
+        "SAP_SL_URL": URL,
+        "SAP_SL_COMPANY": COMPANY,
+        "SAP_SL_USER": USER,
+        "SAP_SL_PASSWORD": PWD,
+        "SAP_SL_VERIFY_SSL": "false",
+        "SAP_SL_TIMEOUT": "5",
+    }
+    with patch.dict(os.environ, entorn):
+        import app as app_mod
+
+        anterior = app_mod._sl_singleton
+        app_mod._sl_singleton = None
+        try:
+            primer = app_mod._sl_client()
+            segon = app_mod._sl_client()
+            assert primer is segon
+            assert isinstance(primer, SLClient)
+        finally:
+            app_mod._sl_singleton = anterior

@@ -492,8 +492,12 @@ def api_calcular_agrupat():
 # ============================================================
 # /api/afegir-palets — Botó B1UP al Sales Order de SAP
 # ============================================================
-def _sl_client() -> SLClient:
-    """Crea un SLClient a partir de les variables d'entorn SAP_SL_*.
+_sl_singleton: SLClient | None = None
+_sl_singleton_lock = threading.Lock()
+
+
+def _build_sl_client() -> SLClient:
+    """Construeix un SLClient a partir de les variables d'entorn SAP_SL_*.
 
     Requereix .env amb: SAP_SL_URL, SAP_SL_COMPANY, SAP_SL_USER,
     SAP_SL_PASSWORD, opcional SAP_SL_VERIFY_SSL, SAP_SL_TIMEOUT.
@@ -505,6 +509,33 @@ def _sl_client() -> SLClient:
     verify = os.environ.get("SAP_SL_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
     timeout = int(os.environ.get("SAP_SL_TIMEOUT", "15"))
     return SLClient(url, company, user, pwd, verify=verify, timeout=timeout)
+
+
+def _sl_client() -> SLClient:
+    """Retorna el SLClient del procés, creant-lo el primer cop.
+
+    **Una instància per procés, reutilitzada entre peticions.** Abans se'n creava
+    una per petició amb `with SLClient(...)`, cosa que feia un `POST /Login` i un
+    `Logout` a cada clic del botó B1UP. Amb Gunicorn (`gthread 2×4`) i peticions
+    de debò en paral·lel, això va petar: un smoke test de 8 peticions concurrents
+    va deixar 5 respostes 502 perquè el Service Layer no aguanta 8 logins
+    simultanis i els logins vencien als 15 s (`Read timed out`). Veure
+    `tasks/lessons.md` L13.
+
+    El client ja estava pensat per viure molt (renovació preventiva de sessió als
+    25 min a `_ensure_session`); creant-ne un per petició aquella lògica no
+    s'executava mai.
+
+    No cal reconstruir-lo si un login falla: `_ensure_session()` torna a
+    autenticar quan `self._session` és `None`, així que la petició següent ho
+    reintenta sola.
+    """
+    global _sl_singleton
+    if _sl_singleton is None:
+        with _sl_singleton_lock:
+            if _sl_singleton is None:          # recomprovació dins el lock
+                _sl_singleton = _build_sl_client()
+    return _sl_singleton
 
 
 @app.route("/api/afegir-palets/<int:doc_entry>", methods=["POST"])
@@ -582,14 +613,18 @@ def api_afegir_palets(doc_entry: int):
         )
 
         # 4. Substituir línies velles via SL (o esborrar si no n'hi ha de noves)
-        with _sl_client() as sl:
-            stats = sl.replace_marked_lines(
-                doc_entry,
-                MARCADOR_LINIA_PALET_UDF,
-                MARCADOR_LINIA_PALET_VALOR,
-                linies_noves,
-                owned_item_codes=articles_palet,
-            )
+        #
+        # Sense `with`: el client és el singleton del procés i la seva sessió es
+        # reutilitza entre peticions. Un `with` aquí faria login+logout a cada
+        # clic (veure `_sl_client`).
+        sl = _sl_client()
+        stats = sl.replace_marked_lines(
+            doc_entry,
+            MARCADOR_LINIA_PALET_UDF,
+            MARCADOR_LINIA_PALET_VALOR,
+            linies_noves,
+            owned_item_codes=articles_palet,
+        )
 
         elapsed = time.time() - t0
         logger.info(

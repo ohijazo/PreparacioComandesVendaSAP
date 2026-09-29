@@ -38,6 +38,7 @@ S'actualitza a cada commit rellevant. Complement a:
 | 2.6 | Deployment amb NSSM + validació end-to-end | ✅ Fet (script + docs; validació esperant consultor) |
 | 2.7 | Fix duplicació de palets i recàlcul obsolet | ✅ Fet (commit `1b3c6d6`) |
 | 2.8 | Gunicorn en producció + swap de la URL a SAP | ✅ Gunicorn fet (`a33c5e0`); swap pendent del DNS de Sistemes |
+| 2.9 | Reutilització de la sessió Service Layer | 🔧 Fet al repo; pendent desplegar i repetir el smoke test |
 
 ---
 
@@ -473,3 +474,54 @@ A Sistemes només se li demana **un registre DNS**:
 3. Finestra del swap seguint la Fase B del runbook (~10 min, fora d'hores).
 4. Opcional i posterior: DNS `comandes-sap.agrienergia.local` + `ServerAlias` +
    UF-038 al nom nou + `BIND_ADDR=127.0.0.1:5002`.
+
+---
+
+## §2.9 Reutilització de la sessió Service Layer (2026-09-29)
+
+### Objectiu
+Que el botó B1UP no falli quan diversos operaris el cliquen alhora.
+
+### Com es va trobar
+Smoke load test previ al swap, amb 8 comandes diferents en paral·lel contra
+`POST /api/afegir-palets/`: **5 de 8 respostes 502**, totes agrupades entre 15,19
+i 15,36 s. Al log, `Fallada de xarxa al login: ... Read timed out (read
+timeout=15)`.
+
+### Causa
+`app.py` feia `with _sl_client() as sl:` a cada petició → `POST /Login` i
+`Logout` al Service Layer **per cada clic**. Amb 8 logins simultanis el Service
+Layer no hi arriba i els que no entren venen als 15 s (`SAP_SL_TIMEOUT`);
+`login()` embolcalla el timeout dins `SLLoginError`, subclasse d'`SLError`, i
+l'endpoint el tradueix a 502.
+
+`SLClient` ja estava escrit per viure molt (renovació preventiva als 25 min a
+`_ensure_session`), però creant-ne un per petició aquella lògica no s'executava
+mai.
+
+**No és una regressió de la migració a Gunicorn**: el dev server de Flask
+serialitzava les peticions i mai n'hi havia dues alhora al Service Layer. La
+concurrència real va fer visible un defecte latent.
+
+### Canvis
+- **`app.py`** — `_sl_client()` passa a retornar un singleton del procés
+  (double-checked locking); `_build_sl_client()` conserva la construcció des de
+  l'entorn. L'endpoint deixa de fer servir el context manager.
+- **`sap_service_layer.py`** — `RLock` per instància. `_request` i
+  `replace_marked_lines` passen a ser embolcalls prims que prenen el lock i
+  deleguen a `_request_locked` / `_replace_marked_lines_locked`. Protegeix que
+  `requests.Session` no és thread-safe, que `_ensure_session()` muta l'estat de
+  sessió, i que `replace_marked_lines` és un read-modify-write que dos fils
+  podrien travessar alhora escrivint línies duplicades (L9 per una altra porta).
+
+### Verificació
+- `pytest tests/` → **128/128 OK** (124 previs + 4 nous).
+- Els tests nous cobreixen: una sola sessió per a N peticions successives, un sol
+  login amb 5 fils concurrents, cap solapament entre `replace_marked_lines` de
+  fils diferents, i que `app._sl_client()` retorna sempre la mateixa instància.
+- **Comprovat que els tests no són buits**: amb un lock fals (el comportament
+  anterior) el test de concurrència dona 5 logins; amb el lock real, 1.
+
+### Pendent
+Desplegar i repetir el smoke test — ha de donar 8/8 HTTP 200. Detall a
+`tasks/lessons.md` L13.
