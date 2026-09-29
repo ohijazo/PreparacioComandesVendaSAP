@@ -39,6 +39,7 @@ S'actualitza a cada commit rellevant. Complement a:
 | 2.7 | Fix duplicació de palets i recàlcul obsolet | ✅ Fet (commit `1b3c6d6`) |
 | 2.8 | Gunicorn en producció + swap de la URL a SAP | ✅ Gunicorn fet (`a33c5e0`); swap pendent del DNS de Sistemes |
 | 2.9 | Reutilització de la sessió Service Layer | ✅ Fet i verificat al servidor (commit `7b75380`, smoke test 8/8) |
+| 2.10 | Fix RF4: apilament ignorava la capacitat del palet | 🔧 Fet i provat al repo; pendent desplegar |
 
 ---
 
@@ -545,3 +546,78 @@ Layer un cop serialitzades pel lock del client.
 El total de les 8 concurrents (3,68 s) és 1,7× el warmup, no 8×: els dos workers
 treballen en paral·lel i dins de cadascun les crides van en fila. Detall a
 `tasks/lessons.md` L13.
+
+---
+
+## §2.10 Fix RF4: l'apilament ignorava la capacitat del palet (2026-09-29)
+
+### Objectiu
+Corregir una incidència d'usuari: una comanda amb 455 sacs i màxim 40 sacs/palet
+a la direcció calculava 11 palets en comptes de 12.
+
+### Causa
+El repartiment principal era correcte (11 palets de 40). El pas d'apilament de
+RF4, que col·loca els articles de dimensió especial a sobre dels palets
+existents, limitava per `cantidadapilable` però **no per l'espai lliure del palet
+receptor** (`regles.py:1614`). Els tres primers palets, ja plens a 40/40, rebien
+5 sacs de sèmola cadascun i quedaven a 45 amb `max_sacs=40`.
+
+La branca d'overflow que crea palets propis per als sacs que no caben ja existia,
+però era inabastable: com que cap palet es rebutjava per estar ple, `remaining`
+sempre arribava a 0.
+
+Reproduït amb la comanda real `DocEntry 258` (`C321531`, direcció
+`000-HARINAS LA ENCARNACION, SL-CDS`, `U_SEIMAXSP=40`).
+
+### Canvis (al `regles.py` compartit, `P:\preparacioComandesVenda`)
+- Comprovació de capacitat al bucle d'apilament: es salten els palets sense espai
+  i `posar` es limita també per l'espai lliure.
+- Missatge de traçabilitat propi per al cas "cap palet té espai lliure", que
+  abans quedava mig buit.
+- **Invariant de sortida a `aplicar_regles`**: si algun palet acaba per sobre del
+  seu màxim s'afegeix un `AVÍS` a la traçabilitat i l'estat puja a
+  `CALCULAT_AMB_AVISOS`. No hi havia cap comprovació d'aquest tipus, i és per
+  això que el bug va arribar fins a l'usuari. No llença excepció a propòsit.
+- Dos tests de regressió a `tests/test_rf4.py` (sincronitzat a les dues variants;
+  la còpia de SAP anava dos tests enrere).
+
+### Verificació
+- Comanda real: **12 palets**, cap per sobre de 40, els 15 sacs de sèmola en un
+  palet propi amb `tipus_palet='01030'`, el mateix que els altres onze — així que
+  l'operari només veurà la línia de palet passar d'11 a 12.
+- `pytest` → **113 a Kais**, **132 a SAP**. Cap regressió.
+- Els tests nous verificats contra el codi anterior (worktree a `HEAD`): fallen
+  amb el símptoma exacte del report (`Palet 1: 45 sacs amb max=40`).
+
+### Desplegament
+Kais en producció corre `9691d38` (30-06-2026) i el seu `regles.py` — que és el
+que **SAP importa al servidor** — no tenia ni tan sols la branca d'overflow de la
+qual depèn l'arreglo (commit `a83fed8`, mai pujat).
+
+Branca `fix/rf4-capacitat-apilament` (`e279128`) amb `db275ce` + `a83fed8` + el
+fix, deixant **fora** `332a64a` (avisos a fabricació, +207 línies a `mailer.py`,
+mòdul compartit amb SAP), que és un canvi molt més gran i mereix la seva pròpia
+finestra.
+
+```bash
+cd /var/www/comandes-venda
+sudo -u www-data git fetch origin
+sudo -u www-data git reset --hard origin/fix/rf4-capacitat-apilament
+sudo systemctl restart comandes-venda-sap
+sudo systemctl restart comandes-venda
+```
+
+⚠️ Mentre el directori de Kais estigui en aquesta branca, **no fer servir el botó
+"actualitzar" de Kais**: el seu `/api/admin/actualitzar` fa `git pull origin main`
+i tornaria el directori a `9691d38`, desfent l'arreglo.
+
+### Pendent
+1. Desplegar (comandaments de sobre) i confirmar-ho amb l'usuari que ho va
+   reportar.
+2. Endreçar el repo de Kais: té 4 commits sense pujar i l'arbre de treball brut.
+   Decidir què es fa amb la feature d'avisos a fabricació i tornar el servidor a
+   `main`.
+3. Tres defectes més trobats al mateix fitxer, documentats però no tocats:
+   RF11 supera el màxim de la direcció (`regles.py:403-404`), `art_max_map` fora
+   d'àmbit (`regles.py:982` vs `:1332`, amb `NameError` latent) i RF14 sense
+   comprovació per article.

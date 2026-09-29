@@ -885,3 +885,75 @@ I el corol·lari de mètode: el smoke test de càrrega no era un trànsit burocr
 S'havia de passar **abans** d'obrir la URL als usuaris, i va trobar en 15 segons
 un defecte que hauria aparegut com a "de vegades el botó dona error" impossible
 de reproduir a mà.
+
+---
+
+## L14 — Un pas que modifica palets ja construïts ha de tornar a comprovar-ne els límits
+
+### Context
+
+Un usuari va reportar (29-09-2026) que una comanda amb 455 sacs i un màxim de 40
+sacs per palet a la direcció donava 11 palets en comptes de 12. Reproduït amb la
+comanda real:
+
+```
+Palet  1:  45 sacs (max=40)  [30560x40, 30360x5]
+Palet  2:  45 sacs (max=40)  [30560x40, 30360x5]
+Palet  3:  45 sacs (max=40)  [30560x40, 30360x5]
+Palets 4-11: 40 sacs
+```
+
+El repartiment principal era **correcte**: 11 palets de 40, cap per sobre del
+màxim. El problema era un pas posterior, l'apilament de RF4, que agafa els
+articles de dimensió especial i els col·loca "a sobre" dels palets existents:
+
+```python
+posar = min(remaining, cantapilable)   # regles.py:1614, abans del fix
+dest.total_sacs += posar
+```
+
+Limitava per `cantidadapilable` — la restricció física d'apilament de l'article —
+però **no per l'espai lliure del palet receptor**. Els palets s'ordenaven per
+ocupació ascendent, cosa que fa pensar que es buscava el que tenia més espai,
+però cap es descartava per estar ple.
+
+L'efecte més perniciós: la branca d'overflow que crea palets propis per als sacs
+que no caben **ja existia i estava provada**, però era inabastable. Com que cap
+palet es rebutjava, `remaining` sempre arribava a 0.
+
+### Les dues regles
+
+**1. Qui muta un objecte ja construït n'hereta les invariants.** El pas
+d'apilament no "crea" palets, els modifica, i per tant ha de respectar els
+mateixos límits que va respectar qui els va construir. Cada optimització
+posterior del motor (cross-base, micro-palets, RF14) comprova la capacitat del
+receptor; aquesta se'n va oblidar i ningú ho va notar perquè no hi havia res que
+ho comprovés.
+
+**2. Un motor determinista ha de validar les seves pròpies invariants de
+sortida.** No hi havia enlloc un `total_sacs <= max_sacs`. Un bug que produeix
+palets impossibles va poder viatjar fins a la pantalla d'un operari i tornar com
+a incidència. Ara `aplicar_regles` ho comprova abans de retornar i emet un
+`AVÍS` (no una excepció: trencaria comandes en producció per una anomalia de la
+qual encara se'n pot treure un resultat aprofitable).
+
+### Regla per al futur
+
+Quan s'afegeixi un pas que toqui `embalatges` després de `_construir_embalatges`,
+la pregunta obligatòria és **"quines invariants dels palets pot trencar això?"** —
+capacitat total, màxim per article, `es_no_barreja` de RF12, tipus de palet. I si
+la resposta no és òbvia, el test ha de ser la invariant, no el resultat concret:
+
+```python
+for e in resultat.embalatges:
+    assert e.total_sacs <= e.max_sacs
+```
+
+Aquest assert, escrit el primer dia, hauria convertit una incidència d'usuari en
+un test vermell.
+
+### Nota de mètode
+
+Els tests nous es van verificar contra el codi anterior (worktree a `HEAD`) i
+fallaven amb el símptoma exacte del report: `Palet 1: 45 sacs amb max=40`. Un
+test de regressió que no s'ha vist fallar no és un test de regressió.
