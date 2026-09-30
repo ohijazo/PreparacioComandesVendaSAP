@@ -1,69 +1,51 @@
-# Petició a Sistemes — registre DNS de fallback per al swap
+# Petició a Sistemes — registre DNS per a l'aplicació d'embalatges (SAP)
 
 Text preparat per enviar per mail o obrir tiquet. Context tècnic a
-`deploy/README.md`; procediment complet a `docs/runbook_swap_url_produccio.md`;
-guia per Sistemes a `docs/Desplegament_SAP_Sistemes.pdf`.
+`deploy/README.md`; guia completa a `docs/Desplegament_SAP_Sistemes.pdf`.
 
 ---
 
-**Assumpte**: Alta de registre DNS `comandes-kais.agrienergia.local`
+**Assumpte**: Alta de registre DNS `comandessap.agrienergia.local`
 
 Bon dia,
 
-Volem que `http://comandes.agrienergia.local/` — la URL que ja fan servir els
-usuaris per calcular embalatges de comandes de venda — passi a servir la versió de
-l'aplicació que llegeix les dades de **SAP Business One**, en lloc de la que
-llegeix de Kais.
+Al servidor `ae01farwebsrv` (`192.168.11.244`) conviuen dues versions de
+l'aplicació de càlcul d'embalatges de comandes de venda: la que està en producció
+a `http://comandes.agrienergia.local/`, que llegeix les dades de Kais, i una de
+nova que llegeix de SAP Business One. Les dues han de seguir funcionant en
+paral·lel.
 
-La versió de Kais **no s'atura**: ha de seguir disponible en paral·lel una
-temporada (política acordada: viu fins al novembre de 2026). Quedarà accessible a
-`http://comandes-kais.agrienergia.local/`, i serveix també de marxa enrere ràpida
-si la versió SAP dona problemes.
+Ara mateix la versió nova només és accessible escrivint la IP i el port
+(`http://192.168.11.244:5002/`), cosa incòmoda per als usuaris i fràgil si algun
+dia canvia la IP del servidor. Voldríem donar-li un nom propi.
 
-Les dues aplicacions ja conviuen al mateix servidor `ae01farwebsrv`
-(`192.168.11.244`) darrere del mateix Apache, cadascuna amb el seu VirtualHost.
-El canvi és de configuració d'Apache i el faig jo.
-
-De vosaltres necessitem **un sol registre DNS**:
+Necessitem **un sol registre DNS**:
 
 | Nom | Tipus | Valor | TTL |
 |---|---|---|---|
-| `comandes-kais.agrienergia.local` | A | `192.168.11.244` | 300 |
+| `comandessap.agrienergia.local` | A | `192.168.11.244` | 300 |
 
-És **la mateixa IP** que ja fa servir `comandes.agrienergia.local`: el que separa
-les dues aplicacions és el nom de host que llegeix Apache, no la xarxa.
+És **la mateixa IP** que ja fa servir `comandes.agrienergia.local`. L'Apache del
+servidor ja encamina per nom de host cap a l'aplicació que toca —com ja fa amb
+`agrupacions`, `fitxesfc`, `labfc` i `visitesfc`— i el VirtualHost nou ja està
+configurat i provat, esperant només que el nom resolgui.
 
 **Què NO cal fer:**
 
-- **No cal tocar el registre `comandes.agrienergia.local`.** Ha de seguir apuntant
-  a `192.168.11.244` exactament com ara. El que canvia és quin VirtualHost el
-  serveix, i això és config d'Apache, no DNS.
+- **No cal tocar `comandes.agrienergia.local`.** La versió en producció es queda
+  exactament com està, amb el mateix nom i la mateixa configuració.
 - No cal cap IP nova ni cap canvi a la configuració de xarxa del servidor.
 - No cal obrir ports al tallafocs: és el port 80 que Apache ja fa servir.
+- No cal aturar ni reiniciar res de la versió en producció.
 
-Si podeu, confirmeu-me també que el TTL de `comandes.agrienergia.local` és de 300
-s o menys. No el canviem, però si algun dia cal moure'l voldríem propagació
-ràpida.
+Quan estigui donat d'alta, aviseu-me i ho verifico:
 
-Quan el registre nou estigui donat d'alta, aviseu-me i acordem la finestra del
-canvi (~10 min, fora d'hores actives).
+```
+nslookup comandessap.agrienergia.local
+```
 
 Gràcies,
 Oscar Hijazo
-
----
-
-## Opcional, per més endavant
-
-El botó "Calcular embalatges" de SAP Business One crida l'aplicació per IP
-directa (`192.168.11.244:5002`). Funciona i el swap no l'afecta, però si algun dia
-volem treure la IP del codi de B1UP caldria un segon registre:
-
-| Nom | Tipus | Valor | TTL |
-|---|---|---|---|
-| `comandes-sap.agrienergia.local` | A | `192.168.11.244` | 300 |
-
-No és urgent ni bloqueja el swap. Raonament al pas B.7 del runbook.
 
 ---
 
@@ -71,10 +53,22 @@ No és urgent ni bloqueja el swap. Raonament al pas B.7 del runbook.
 
 | Element | Responsable | Estat | Data |
 |---|---|---|---|
-| Codi al dia al servidor (`a33c5e0`) | Oscar | ✅ fet | 29-09-2026 |
-| Migració a Gunicorn (`--reinstall-service`) | Oscar | ✅ fet | 29-09-2026 |
-| DNS `comandes-kais.agrienergia.local` | Sistemes | ⏳ pendent | — |
-| Backup config Apache | Oscar | ⏳ pendent | — |
-| Smoke load test amb Gunicorn | Oscar | ⏳ pendent | — |
-| Finestra del swap (runbook Fase B) | Oscar | ⏳ pendent del DNS | — |
-| DNS `comandes-sap` + UF-038 + `BIND_ADDR=127.0.0.1` | Oscar / consultor | ⏳ opcional | — |
+| Codi al dia al servidor | Oscar | ✅ fet | 29-09-2026 |
+| Migració a Gunicorn | Oscar | ✅ fet | 29-09-2026 |
+| Fix RF4 desplegat | Oscar | ✅ fet | 29-09-2026 |
+| VirtualHost d'Apache activat i provat | Oscar | ⏳ | — |
+| DNS `comandessap.agrienergia.local` | Sistemes | ⏳ pendent | — |
+| Comunicar la URL nova als usuaris | Oscar | ⏳ | — |
+
+## Més endavant, opcional
+
+El botó "Calcular embalatges" de SAP Business One crida l'aplicació per IP
+directa (`192.168.11.244:5002`). Un cop el nom existeixi, el consultor de B1UP el
+pot reapuntar a `http://comandessap.agrienergia.local/api/afegir-palets/` i
+llavors es pot tancar Gunicorn darrere d'Apache:
+
+```bash
+sudo BIND_ADDR=127.0.0.1:5002 bash /var/www/comandes-venda-sap/deploy.sh --reinstall-service
+```
+
+No és urgent i no bloqueja res.

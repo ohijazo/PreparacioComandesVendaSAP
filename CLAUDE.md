@@ -365,6 +365,8 @@ La proposta inicial preveia 3 UDFs a ORDR + worker asíncron. **Substituït per 
   `docs/Desplegament_SAP_Sistemes.pdf` (el canvi de URL, generat per
   `scripts/build_guia_sistemes.py`).
 - Arquitectura de xarxa del servidor: `deploy/README.md`.
-- Swap de la URL a SAP: `docs/runbook_swap_url_produccio.md` +
-  `docs/peticio_dns_sistemes.md`.
+- Nom propi per a SAP (`comandessap.agrienergia.local`):
+  `docs/runbook_url_propia_sap.md` + `docs/peticio_dns_sistemes.md`. El swap de
+  `comandes.agrienergia.local` va quedar **descartat** el 2026-09-30: Kais
+  conserva la seva URL.
 - Guia botó B1UP: `docs/configuracio_b1up_boto_embalatge.md`.

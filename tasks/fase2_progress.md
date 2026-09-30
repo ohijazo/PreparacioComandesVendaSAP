@@ -40,6 +40,7 @@ S'actualitza a cada commit rellevant. Complement a:
 | 2.8 | Gunicorn en producció + swap de la URL a SAP | ✅ Gunicorn fet (`a33c5e0`); swap pendent del DNS de Sistemes |
 | 2.9 | Reutilització de la sessió Service Layer | ✅ Fet i verificat al servidor (commit `7b75380`, smoke test 8/8) |
 | 2.10 | Fix RF4: apilament ignorava la capacitat del palet | ✅ Desplegat i verificat en producció (`e279128`) |
+| 2.11 | Nom propi per a SAP (`comandessap.agrienergia.local`) | 🔧 Repo llest; pendent activar vhost + DNS |
 
 ---
 
@@ -639,3 +640,44 @@ sobre de 40, amb els 15 sacs de sèmola al palet 12. Kais segueix responent.
    RF11 supera el màxim de la direcció (`regles.py:403-404`), `art_max_map` fora
    d'àmbit (`regles.py:982` vs `:1332`, amb `NameError` latent) i RF14 sense
    comprovació per article.
+
+---
+
+## §2.11 Nom propi per a l'aplicació SAP (2026-09-30)
+
+### Decisió
+**No es toca `comandes.agrienergia.local`.** El swap que s'havia plantejat queda
+descartat: Kais conserva la seva URL i la variant SAP rep un nom propi,
+`comandessap.agrienergia.local` (sense guionet, com la resta de noms del servidor:
+`agrupacions`, `fitxesfc`, `labfc`, `visitesfc`).
+
+Això redueix la petició a Sistemes a **un sol registre DNS** cap a la mateixa IP i
+elimina del pla el registre de fallback per a Kais, la finestra de manteniment, el
+solapament de `ServerAlias` i el rollback.
+
+### Canvis
+- **`deploy/apache/comandes-venda-sap.conf`** — `ServerName
+  comandessap.agrienergia.local`, `ProxyPass` a `127.0.0.1:5002`. Es pot activar
+  **abans** que el DNS existeixi sense afectar ningú: Apache encamina pel `Host` i
+  cap client enviarà aquest nom fins que resolgui, així que tot el camí es pot
+  validar amb `curl -H "Host: ..."`.
+- **`deploy/apache/comandes-venda-kais.conf.reference`** — eliminat: era la
+  plantilla per rebatejar el vhost de Kais durant el swap.
+- **`docs/runbook_swap_url_produccio.md`** → **`docs/runbook_url_propia_sap.md`**,
+  reescrit: Fase 1 activar el vhost (ja), Fase 2 DNS, Fase 3 reapuntar el botó
+  B1UP (opcional). El procediment del swap queda en un apèndix marcat com a
+  descartat, perquè és correcte i està verificat sobre la topologia real per si
+  algun dia es reobre.
+- **`docs/peticio_dns_sistemes.md`** — un sol registre.
+- **`docs/Desplegament_SAP_Sistemes.pdf`** + generador — refet: 9 pàgines sense
+  cap rastre del swap.
+- **`deploy/README.md`**, **`CLAUDE.md`** — estat objectiu actualitzat.
+
+### Pendent
+1. **Oscar**: `deploy.sh` per portar el vhost al servidor, copiar-lo a
+   `sites-available`, `a2ensite`, `configtest`, `reload`, i verificar amb
+   capçalera `Host`. No depèn del DNS.
+2. **Sistemes**: `comandessap.agrienergia.local` → `192.168.11.244`, TTL 300.
+3. Comunicar la URL als usuaris.
+4. Opcional i posterior: reapuntar la UF-038 al nom nou i tancar Gunicorn a
+   `127.0.0.1:5002`.

@@ -41,31 +41,27 @@ El bind és `0.0.0.0` i no `127.0.0.1` perquè el botó B1UP (UF-038) crida
 `http://192.168.11.244:5002/api/afegir-palets/<DocEntry>` per IP directa. Tancar-lo
 abans de reapuntar la UF-038 mata el botó.
 
-## Estat objectiu: SAP hereta `comandes.agrienergia.local`
+## Estat objectiu: SAP amb nom propi
 
-L'objectiu és que la URL que ja fan servir els usuaris serveixi les dades de SAP,
-amb Kais viu en paral·lel a un nom secundari.
+**Decisió del 30-09-2026**: no es toca `comandes.agrienergia.local`. Les dues
+variants conviuen, cadascuna amb el seu nom.
 
 ```
-  comandes.agrienergia.local ─────▶ comandes-venda-sap.conf → 127.0.0.1:5002  SAP
-  comandes-kais.agrienergia.local ▶ comandes-venda.conf     → 127.0.0.1:5001  Kais
+  comandes.agrienergia.local    ─────▶ comandes-venda.conf     → 127.0.0.1:5001  Kais
+  comandessap.agrienergia.local ─────▶ comandes-venda-sap.conf → 127.0.0.1:5002  SAP
 ```
 
-**No hi ha canvi de DNS per a la URL principal.** `comandes.agrienergia.local` ja
-apunta a `192.168.11.244` i s'hi queda: les dues apps viuen a la mateixa IP i és
-Apache qui decideix quina serveix cada nom. L'únic registre nou és
-`comandes-kais.agrienergia.local` → la mateixa `192.168.11.244`.
+Cal **un sol registre DNS nou**, `comandessap.agrienergia.local` → la mateixa
+`192.168.11.244`: el que separa les dues aplicacions és el `ServerName` del vhost,
+no la xarxa. Kais no es toca gens.
 
-El swap és, doncs, moure el `ServerName` d'un vhost a l'altre i un
-`systemctl reload apache2`. Kais no s'atura ni es reconfigura el seu servei.
-Procediment complet, amb la finestra i el rollback:
-`docs/runbook_swap_url_produccio.md`. Petició per Sistemes:
+El vhost es pot activar **abans** que el DNS existeixi, sense afectar ningú:
+Apache només encamina pel `Host` que li arriba i cap client enviarà aquest nom
+fins que resolgui, així que es pot validar tot el camí amb
+`curl -H "Host: comandessap.agrienergia.local"`.
+
+Procediment: `docs/runbook_url_propia_sap.md`. Petició per Sistemes:
 `docs/peticio_dns_sistemes.md`.
-
-Durant el solapament de 30-60 segons entre els dos `reload`, els dos vhosts
-responen al mateix nom i guanya el que Apache carrega primer:
-`comandes-venda-sap.conf` < `comandes-venda.conf` per ordre alfabètic (`-` va
-abans que `.`), o sigui SAP.
 
 ## Comandaments del desplegament
 
@@ -90,6 +86,5 @@ arribava.
 
 | Fitxer | Rol |
 |---|---|
-| `apache/comandes-venda-sap.conf` | Vhost de SAP amb `ServerName comandes.agrienergia.local`. S'activa el dia del swap. |
-| `apache/comandes-venda-kais.conf.reference` | Còpia de referència del vhost de Kais amb els canvis del swap marcats. **No es desplega.** |
+| `apache/comandes-venda-sap.conf` | Vhost de SAP (`ServerName comandessap.agrienergia.local`). Es pot activar abans del DNS. |
 | `logrotate/comandes-venda-sap` | Rotació setmanal dels logs de Gunicorn |

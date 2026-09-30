@@ -1,132 +1,91 @@
-# Fix RF4: l'apilament d'articles especials ignorava la capacitat del palet (29-09-2026)
+# Nom propi per a l'aplicació SAP (30-09-2026)
 
-## Incidència
+## Objectiu
 
-Un usuari reporta que una comanda de HARINAS LA ENCARNACION (`C321531`) calcula
-**11 palets quan n'haurien de ser 12**: la direcció d'enviament té
-`Màxim Sacs x Palet = 40` i la comanda porta 455 sacs (455 / 40 = 11,375 → 12).
+Que la variant SAP sigui accessible a `http://comandessap.agrienergia.local/` en
+lloc de per IP i port. **La URL de producció no es toca**: Kais es queda a
+`comandes.agrienergia.local` amb la mateixa configuració i el mateix servei.
 
-## Causa
+Decisió de l'Oscar: el swap que s'havia plantejat abans queda descartat.
 
-Reproduïda amb la comanda real (`DocEntry 258`, `DB_FARIN_TEST`):
+## Per què és senzill
 
-```
-Palet  1:  45 sacs (max=40)  [30560x40, 30360x5]   <-- supera el màxim
-Palet  2:  45 sacs (max=40)  [30560x40, 30360x5]
-Palet  3:  45 sacs (max=40)  [30560x40, 30360x5]
-Palets 4-11: 40 sacs
-```
+Apache ja encamina per nom de host cap a cinc aplicacions del servidor.
+Afegir-n'hi una és un VirtualHost nou i un registre DNS cap a **la mateixa IP** —
+el que separa les aplicacions és el `ServerName`, no la xarxa.
 
-El repartiment principal era correcte. El pas d'apilament de RF4 —
-`regles.py:1614` — col·loca els articles de dimensió especial a sobre dels palets
-existents limitant per `cantidadapilable` (5) però **no per l'espai lliure del
-palet receptor**. L'article `30360 SEMOLA FINA` té `QryGroup2='Y'` i els seus 15
-sacs anaven a parar a tres palets que ja estaven a 40/40.
+I el VirtualHost es pot activar **abans** que el DNS existeixi, sense afectar
+ningú: cap client enviarà aquest `Host` fins que el nom resolgui, així que tot el
+camí (proxy, estàtics, logs) es pot validar amb `curl -H "Host: ..."`.
 
-La branca d'overflow que crea palets propis per als sacs que no caben ja existia
-i estava provada, però era **inabastable**: com que cap palet es rebutjava per
-estar ple, `remaining` sempre arribava a 0.
+## Fet al repo
 
-## Fet
+- [x] `deploy/apache/comandes-venda-sap.conf` amb `ServerName comandessap...`
+- [x] Eliminat `comandes-venda-kais.conf.reference` (era per al swap)
+- [x] `docs/runbook_url_propia_sap.md` (abans `runbook_swap_url_produccio.md`),
+      reescrit; el swap queda en un apèndix marcat com a descartat
+- [x] `docs/peticio_dns_sistemes.md` — un sol registre
+- [x] `docs/Desplegament_SAP_Sistemes.pdf` refet (9 pàgines, sense rastre del swap)
+- [x] `deploy/README.md` i `CLAUDE.md` actualitzats
 
-- [x] Reproduir amb la comanda real de l'usuari
-- [x] `regles.py`: comprovació de l'espai lliure del palet receptor
-- [x] `regles.py`: traça pròpia per al cas "cap palet té espai lliure"
-- [x] `regles.py`: invariant de sortida a `aplicar_regles` (`AVÍS` +
-      `CALCULAT_AMB_AVISOS` si algun palet supera el seu màxim)
-- [x] Dos tests de regressió, **verificats contra el codi anterior** (fallen amb
-      `Palet 1: 45 sacs amb max=40`)
-- [x] Sincronitzar `tests/test_rf4.py` a les dues variants (la còpia de SAP anava
-      dos tests enrere)
-- [x] Branca de desplegament `fix/rf4-capacitat-apilament` (`e279128`) pujada
-- [x] **Desplegat al servidor** (29-09-2026) i verificat: 12 palets
-- [ ] Confirmar-ho amb l'usuari que ho va reportar
+## Pendent
 
-## Resultat amb la comanda del cas
+- [ ] **Activar el vhost al servidor** (no depèn del DNS)
+- [ ] **Sistemes**: `comandessap.agrienergia.local` → `192.168.11.244`, TTL 300
+- [ ] Verificar des d'un PC de la xarxa un cop resolgui
+- [ ] Comunicar la URL als usuaris
 
-```
-Palets  1-9 : 30560 x40         (max=40)
-Palet  10   : 30180 x40
-Palet  11   : 30180x20 + 30130x20
-Palet  12   : 30360 x15          <-- sèmola, tipus_palet='01030'
-```
-
-12 palets, cap per sobre del màxim. El palet nou surt amb el mateix tipus que els
-altres onze, així que l'operari només veurà la línia de palet passar d'11 a 12.
-
-## Desplegament
-
-La part delicada. Kais en producció corre `9691d38` (30 de juny) i el seu
-`regles.py` — que és el que **SAP importa al servidor** — no tenia ni tan sols la
-branca d'overflow de la qual depèn l'arreglo (`a83fed8`, mai pujat).
-
-Branca `fix/rf4-capacitat-apilament` = `9691d38` + `db275ce` + `a83fed8` + el fix.
-Deixa **fora** `332a64a` (avisos a fabricació, +207 línies a `mailer.py`, mòdul
-compartit amb SAP).
+## Comandaments
 
 ```bash
-cd /var/www/comandes-venda
-sudo -u www-data git fetch origin
-sudo -u www-data git reset --hard origin/fix/rf4-capacitat-apilament
-sudo systemctl restart comandes-venda-sap
-sudo systemctl restart comandes-venda
+# 1. Portar el vhost al servidor
+sudo bash /var/www/comandes-venda-sap/deploy.sh
+
+# 2. Activar-lo
+sudo cp /var/www/comandes-venda-sap/deploy/apache/comandes-venda-sap.conf \
+    /etc/apache2/sites-available/
+sudo a2ensite comandes-venda-sap.conf
+sudo apachectl configtest          # ha de dir "Syntax OK"
+sudo systemctl reload apache2
+
+# 3. Verificar sense DNS, per capçalera Host
+curl -sS -H "Host: comandessap.agrienergia.local" http://127.0.0.1/ajuda | head -5
+curl -sS -o /dev/null -w "%{http_code} %{content_type}\n" \
+    -H "Host: comandessap.agrienergia.local" http://127.0.0.1/static/css/style.css
+curl -sS -H "Host: comandes.agrienergia.local" http://127.0.0.1/ | head -5
+sudo apachectl -S | grep comandes
 ```
 
-El botó "actualitzar" de Kais fa `git pull origin main`. Com que `origin/main`
-(`9691d38`) és avantpassat del commit desplegat, el pull no desfà res ("Already up
-to date"): `git pull` fusiona i no pot moure `HEAD` enrere. Simplement no
-actualitzarà res fins que `origin/main` avanci.
+Criteri: HTML de SAP, `200 text/css`, HTML de Kais intacte, i els dos vhosts
+registrats.
+
+Si `configtest` no diu `Syntax OK`, **no recarregar**: un `reload` amb config
+invàlida deixa Apache servint l'antiga, però un `restart` posterior el tombaria i
+s'emportaria les altres cinc aplicacions del servidor.
+
+Rollback: `sudo a2dissite comandes-venda-sap.conf` + `reload`. SAP segueix
+accessible per `192.168.11.244:5002` i el botó de SAP B1 no se n'assabenta.
 
 ## Revisió
 
 ### Decisions
 
-- **L'arreglo va al `regles.py` compartit**, no a un post-pass de la variant SAP.
-  És un bug del motor i el seu lloc és el motor; duplicar-lo hauria fet divergir
-  les dues variants.
-- **La sèmola va a un palet propi** en lloc de reservar espai als palets base.
-  Dona els 12 palets que espera l'usuari i reutilitza la branca d'overflow que ja
-  existia, en lloc de reescriure el repartiment.
-- **La invariant emet `AVÍS`, no excepció.** Llençar trencaria el càlcul de
-  comandes en producció per una anomalia de la qual encara se'n pot treure un
-  resultat aprofitable.
-- **La feature d'avisos a fabricació es queda fora del desplegament.** Toca
-  `mailer.py`, compartit amb SAP, i envia correus: mereix la seva pròpia finestra.
+- **Nom sense guionet** (`comandessap`, no `comandes-sap`): és el que va demanar
+  l'Oscar i encaixa amb l'estil de la resta de noms del servidor.
+- **Activar el vhost abans del DNS**: no té cap risc i converteix el dia de l'alta
+  en una simple comprovació, en lloc d'un desplegament.
+- **El botó B1UP no es toca**: crida l'aplicació per IP i port directes. Reapuntar
+  la UF-038 al nom nou és feina posterior i opcional; només llavors té sentit
+  tancar Gunicorn a `127.0.0.1:5002`.
+- **L'apèndix del swap es conserva**: el procediment és correcte i està verificat
+  sobre la topologia real. Esborrar-lo obligaria a refer la investigació si algun
+  dia es reobre.
 
-### Fitxers
+### Pendent d'altres fronts
 
-- `P:\preparacioComandesVenda\regles.py` — capacitat, traça, invariant
-- `P:\preparacioComandesVenda\tests\test_rf4.py` — dos tests nous
-- `tests/test_rf4.py` (SAP) — sincronitzat
-- `tasks/lessons.md` — L14
-- `tasks/fase2_progress.md` — §2.10
-
-### Pendent per a una altra passada
-
-Tres defectes més al mateix fitxer, trobats però no tocats (cap explica el cas
-reportat, i tots impliquen tocar més codi compartit):
-
-1. ~~RF11 supera el màxim de la direcció~~ — **descartat el 29-09-2026**.
-   Comprovat amb la comanda real `DocEntry 150` (`C301094`, direcció amb
-   `MaxSacsPalet=32`, 660 sacs de `60190` amb `TUnitat=S05`, `UxC=132`,
-   `cantidadapilable=11`): dona 5 palets de 132 sacs (12 capes × 11) per al S05 i
-   2 palets de 32 per al S25 de la mateixa comanda. És **exactament** el
-   comportament que documenta el `CLAUDE.md` a RF11, que el descriu com a
-   "override sobre la dirección", i l'exemple del 60190 hi és escrit lletra per
-   lletra.
-
-   I té sentit físic: el màxim de la direcció està expressat en *sacs* però els
-   sacs no són comparables entre formats. 132 sacs de 5 kg són 660 kg; aplicar-hi
-   el límit de 32 sacs — calibrat per a sacs de 25 kg, és a dir 800 kg — donaria
-   un palet de 160 kg. El límit de la direcció es respecta per a l'article S25 de
-   la mateixa comanda, que és on toca.
-
-   La invariant nova **no salta**, i fa bé: compara cada palet amb el seu propi
-   màxim, no amb el de la direcció.
-2. **`art_max_map` fora d'àmbit** (definit a `regles.py:982` dins el bucle de
-   grups, usat a `:1332` fora): la comprovació per article dels micro-palets
-   queda neutralitzada en comandes multi-base, i si `grups` queda buit hi ha
-   `NameError`.
-3. **RF14 no comprova el màxim per article** (`regles.py:1829-1914`).
-
-També cal endreçar el repo de Kais: 4 commits sense pujar i l'arbre brut.
+- Repo de Kais per endreçar: 4 commits sense pujar, arbre brut, i el directori del
+  servidor apuntant a la branca `fix/rf4-capacitat-apilament`.
+- Dos defectes del motor documentats i no tocats: `art_max_map` fora d'àmbit
+  (`regles.py:982` vs `:1332`, amb `NameError` latent) i RF14 sense comprovació
+  per article. RF11 es va descartar com a defecte el 29-09 després de comprovar-lo
+  amb una comanda real.
