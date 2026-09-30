@@ -9,24 +9,32 @@
 
 **Apache fa de reverse proxy al port 80** amb VirtualHosts per nom. Cada aplicació
 és un Gunicorn escoltant a `127.0.0.1` al seu port, i Apache l'encamina segons el
-`ServerName`. Al servidor hi conviuen cinc aplicacions més la variant SAP.
+`ServerName`. Al servidor hi conviuen deu aplicacions (llista verificada amb
+`apachectl -S` el 30-09-2026).
 
 ```
                  Apache  *:80  (NameVirtualHost)
                  ─────────────────────────────────
-  agrupacions.agrienergia.local ──▶ agrupacio-carregues.conf   ← default server
-  comandes.agrienergia.local ─────▶ comandes-venda.conf        → 127.0.0.1:5001  Kais
-  fitxesfc.agrienergia.local ─────▶ fitxes-tecniques.conf
-  labfc.agrienergia.local ────────▶ labfc.conf
-  visitesfc.agrienergia.local ────▶ visites.conf
-
-  (cap vhost encara) ─────────────▶ comandes-venda-sap.conf    → 127.0.0.1:5002  SAP
+  agrupacions-sap.agrienergia.local ──▶ agrupacio-carregues-sap.conf  ← default server
+  agrupacions.agrienergia.local ──────▶ agrupacio-carregues.conf
+  comandessap.agrienergia.local ──────▶ comandes-venda-sap.conf  → 127.0.0.1:5002  SAP
+  comandes.agrienergia.local ─────────▶ comandes-venda.conf      → 127.0.0.1:5001  Kais
+  deca.agrienergia.local ─────────────▶ deca.conf
+  fitxesfc.agrienergia.local ─────────▶ fitxes-tecniques.conf
+  labfc.agrienergia.local ────────────▶ labfc.conf
+  preus.agrienergia.local ────────────▶ zz-actualitzador-preus-sap.conf
+  visitesfc.agrienergia.local ────────▶ visites.conf
 ```
 
-`agrupacions.agrienergia.local` és el **default server**: qualsevol `Host` que no
-casi cap `ServerName` — per exemple una petició feta directament per IP — el
-serveix aquest vhost. És conseqüència de ser el primer fitxer per ordre alfabètic,
-no d'una configuració explícita.
+El **default server** — qui contesta un `Host` que no casa cap `ServerName`, per
+exemple una petició feta per IP — és `agrupacio-carregues-sap.conf`, per ser el
+primer fitxer per ordre alfabètic. Ull amb això quan es proven coses per IP: no
+respon el que un espera. Va canviar sol quan es va afegir la variant SAP
+d'agrupacions, perquè `agrupacio-carregues-sap.conf` < `agrupacio-carregues.conf`
+(el guionet va abans que el punt).
+
+Diverses d'aquestes aplicacions tenen variant Kais i variant SAP convivint, com
+les comandes de venda.
 
 ## Estat de la variant SAP
 
@@ -34,7 +42,7 @@ no d'una configuració explícita.
 |---|---|
 | Servei | `comandes-venda-sap.service`, Gunicorn gthread 2×4, `wsgi:app` |
 | Socket | `0.0.0.0:5002` |
-| Vhost d'Apache | **cap encara** — només s'hi arriba per `192.168.11.244:5002` |
+| Vhost d'Apache | `comandes-venda-sap.conf`, actiu des del 30-09-2026 (pendent que el DNS resolgui) |
 | Directori | `/var/www/comandes-venda-sap` |
 
 El bind és `0.0.0.0` i no `127.0.0.1` perquè el botó B1UP (UF-038) crida
