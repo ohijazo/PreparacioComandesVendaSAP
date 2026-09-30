@@ -976,3 +976,62 @@ un test vermell.
 Els tests nous es van verificar contra el codi anterior (worktree a `HEAD`) i
 fallaven amb el símptoma exacte del report: `Palet 1: 45 sacs amb max=40`. Un
 test de regressió que no s'ha vist fallar no és un test de regressió.
+
+---
+
+## L15 — A Apache, `ProxyPass /` s'empassa els `Alias`: cal excloure la ruta
+
+### Context
+
+El vhost de la variant SAP (i el de Kais, que el va inspirar) tenia aquest patró:
+
+```apache
+ProxyPass / http://127.0.0.1:5002/ nocanon
+ProxyPassReverse / http://127.0.0.1:5002/
+
+# Servir fitxers estàtics directament (evita passar per Gunicorn).
+Alias /static/ /var/www/comandes-venda-sap/static/
+<Directory /var/www/comandes-venda-sap/static/>
+    Require all granted
+</Directory>
+```
+
+El comentari era fals. Provant `/static/css/style.css` després d'activar el
+vhost, la resposta tornava amb:
+
+```
+Server: gunicorn
+ETag: "1790688561.2017193-44744-3126006328"
+```
+
+Aquest format d'`ETag` és el de `send_file` de Flask/Werkzeug (mtime-mida-inode),
+no el d'Apache. O sigui que els estàtics passaven igualment per Gunicorn i
+l'`Alias` era **configuració morta**.
+
+### Causa
+
+`mod_proxy` resol la ruta a la fase `translate_name` amb més prioritat que
+`mod_alias`. Amb un `ProxyPass /` que casa qualsevol cosa, mai s'arriba a
+avaluar l'`Alias`. L'ordre dins del fitxer no hi té res a veure: és l'ordre dels
+mòduls.
+
+### Solució
+
+Excloure la ruta del proxy, i **abans** del `ProxyPass` general (entre regles de
+`ProxyPass` sí que compta l'ordre d'aparició):
+
+```apache
+ProxyPass /static/ !
+ProxyPass / http://127.0.0.1:5002/ nocanon
+```
+
+### Regla per al futur
+
+**Un `Alias` sota un `ProxyPass /` no fa res si no s'exclou la ruta.** I més
+general: després d'activar qualsevol config d'Apache, comprovar que fa el que diu
+el comentari, no només que respon 200. La capçalera `Server` i l'`ETag` diuen qui
+ha servit realment la resposta — la mateixa eina que a L12 em va enganyar per
+haver-la llegit malament, aquí fa exactament la feina per a la qual serveix.
+
+El vhost de Kais té el mateix patró i, per tant, el mateix `Alias` inert. No s'ha
+tocat (variant en producció), però queda apuntat per si algun dia es vol.
