@@ -19,11 +19,17 @@ Ara mateix la versió nova només és accessible escrivint la IP i el port
 (`http://192.168.11.244:5002/`), cosa incòmoda per als usuaris i fràgil si algun
 dia canvia la IP del servidor. Voldríem donar-li un nom propi.
 
-Necessitem **un sol registre DNS**:
+Necessitem **dos registres DNS**, tots dos cap a la mateixa IP:
 
 | Nom | Tipus | Valor | TTL |
 |---|---|---|---|
 | `comandessap.agrienergia.local` | A | `192.168.11.244` | 300 |
+| `agrupacions-sap.agrienergia.local` | A | `192.168.11.244` | 300 |
+
+El segon és per a l'aplicació d'agrupacions de càrregues (variant SAP), que ja
+corre al servidor però mai va tenir nom: ara només s'hi arriba per IP. L'app
+d'embalatges hi encasta el calendari de càrregues, i amb un nom propi deixa de
+dependre de la IP.
 
 És **la mateixa IP** que ja fa servir `comandes.agrienergia.local`. L'Apache del
 servidor ja encamina per nom de host cap a l'aplicació que toca —com ja fa amb
