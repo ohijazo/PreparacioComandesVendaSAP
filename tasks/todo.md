@@ -30,10 +30,25 @@ camí (proxy, estàtics, logs) es pot validar amb `curl -H "Host: ..."`.
 
 ## Pendent
 
-- [ ] **Activar el vhost al servidor** (no depèn del DNS)
+- [x] **Vhost activat i verificat al servidor** (30-09-2026)
 - [ ] **Sistemes**: `comandessap.agrienergia.local` → `192.168.11.244`, TTL 300
 - [ ] Verificar des d'un PC de la xarxa un cop resolgui
 - [ ] Comunicar la URL als usuaris
+
+## Verificació feta (30-09-2026)
+
+Vhost actiu a `/etc/apache2/sites-enabled/comandes-venda-sap.conf`, `configtest`
+OK, `reload` sense tallar res. Comprovat des de la xarxa amb capçalera `Host`:
+
+| Comprovació | Resultat |
+|---|---|
+| `/ajuda` per `comandessap` | `Server: gunicorn` · títol "Ajuda — … (SAP)" |
+| `/static/css/style.css` | `Server: Apache/2.4.58 (Ubuntu)`, ETag d'Apache |
+| `/static/js/app.js` | `Server: Apache/2.4.58 (Ubuntu)` |
+| `comandes.agrienergia.local` | HTML de Kais, intacte |
+| `apachectl -S` | els dos vhosts registrats |
+
+Falta només que el nom resolgui.
 
 ## Comandaments
 

@@ -40,7 +40,7 @@ S'actualitza a cada commit rellevant. Complement a:
 | 2.8 | Gunicorn en producció + swap de la URL a SAP | ✅ Gunicorn fet (`a33c5e0`); swap pendent del DNS de Sistemes |
 | 2.9 | Reutilització de la sessió Service Layer | ✅ Fet i verificat al servidor (commit `7b75380`, smoke test 8/8) |
 | 2.10 | Fix RF4: apilament ignorava la capacitat del palet | ✅ Desplegat i verificat en producció (`e279128`) |
-| 2.11 | Nom propi per a SAP (`comandessap.agrienergia.local`) | 🔧 Repo llest; pendent activar vhost + DNS |
+| 2.11 | Nom propi per a SAP (`comandessap.agrienergia.local`) | ✅ Vhost actiu i verificat; pendent només el DNS |
 
 ---
 
@@ -673,11 +673,19 @@ solapament de `ServerAlias` i el rollback.
   cap rastre del swap.
 - **`deploy/README.md`**, **`CLAUDE.md`** — estat objectiu actualitzat.
 
+### Verificació al servidor (30-09-2026)
+Vhost copiat, `a2ensite`, `configtest` OK i `reload`. Comprovat des de la xarxa
+amb capçalera `Host`: `/ajuda` retorna l'HTML de SAP per `gunicorn`, els estàtics
+(`style.css`, `app.js`) els serveix **Apache** amb el seu propi ETag, i
+`comandes.agrienergia.local` segueix donant Kais sense cap canvi.
+
+En la primera passada els estàtics encara sortien per Gunicorn: `ProxyPass /`
+s'empassava l'`Alias` perquè `mod_proxy` resol la ruta abans que `mod_alias`.
+Corregit amb `ProxyPass /static/ !` (commit `4678128`, lliçó L15). El vhost de
+Kais té el mateix patró i el mateix `Alias` inert; no s'ha tocat.
+
 ### Pendent
-1. **Oscar**: `deploy.sh` per portar el vhost al servidor, copiar-lo a
-   `sites-available`, `a2ensite`, `configtest`, `reload`, i verificar amb
-   capçalera `Host`. No depèn del DNS.
-2. **Sistemes**: `comandessap.agrienergia.local` → `192.168.11.244`, TTL 300.
+1. **Sistemes**: `comandessap.agrienergia.local` → `192.168.11.244`, TTL 300.
 3. Comunicar la URL als usuaris.
 4. Opcional i posterior: reapuntar la UF-038 al nom nou i tancar Gunicorn a
    `127.0.0.1:5002`.
