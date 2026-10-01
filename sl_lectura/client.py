@@ -52,6 +52,17 @@ class SLLectura(SLClient):
         self.max_files = max_files
 
     def login(self) -> None:
+        # El Service Layer d'aqui te certificat autofirmat i s'hi va amb
+        # verify=False. Sense silenciar l'avis, urllib3 n'escup un PER PETICIO:
+        # al journal del refrescador d'agregats hi havia quatre linies d'avis
+        # per cada linia util, i no es podia diagnosticar res. Es silencia
+        # nomes quan ja hem decidit no verificar, no sempre.
+        if not self.verify:
+            try:
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            except Exception:  # pragma: no cover
+                pass
         super().login()
         if self._session is not None:
             self._session.headers["Prefer"] = f"odata.maxpagesize={self.page_size}"
