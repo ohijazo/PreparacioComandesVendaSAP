@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import datetime
 from types import SimpleNamespace
 
 from sl_lectura import cache_articles
@@ -38,6 +39,30 @@ from sl_lectura import odata as od
 from sl_lectura.client import client
 
 logger = logging.getLogger(__name__)
+
+
+def _data_hora(valor):
+    """`2026-09-18T00:00:00Z` del Service Layer -> `datetime` naive.
+
+    Dues raons per fer-ho aixi i no amb `fromisoformat` i zona:
+
+    - El codi de `consultes.py` fa `row.DocDate.year` i desa l'objecte al model
+      `Comanda`, aixi que ha de ser el mateix tipus que torna pyodbc: un
+      `datetime` sense zona.
+    - La `Z` que posa el Service Layer es FALSA. Son dates locals sense zona, i
+      convertir-les desplaçaria el dia respecte del que llegeix el SQL.
+    """
+    if not valor:
+        return None
+    text = str(valor)[:19]
+    try:
+        return datetime.strptime(text, "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        try:
+            return datetime.strptime(text[:10], "%Y-%m-%d")
+        except ValueError:
+            logger.warning("data del Service Layer no interpretable: %r", valor)
+            return None
 
 
 # ============================================================
@@ -187,6 +212,13 @@ def linies_comanda(series: int, docnum: int) -> list[SimpleNamespace]:
     return files
 
 
+def _comandes_amb_linies(series: int, docnum: int) -> list[dict]:
+    return client().tot(
+        COMANDES, select=_CAMPS_COMANDA_LINIES,
+        filtre=f"Series eq {int(series)} and DocNum eq {int(docnum)}",
+    )
+
+
 def linies_batch(claus: list[tuple[int, int]]) -> list[SimpleNamespace]:
     """Linies de diverses comandes. Ordre del SQL: DocNum, despres LineNum."""
     if not claus:
@@ -200,3 +232,243 @@ def linies_batch(claus: list[tuple[int, int]]) -> list[SimpleNamespace]:
     files.sort(key=lambda r: ((r.docnum if r.docnum is not None else 0),
                               (r.linea_num if r.linea_num is not None else 0)))
     return files
+
+
+# ============================================================
+# Interlocutors: nom i adreces, en una sola lectura cachejada
+# ============================================================
+# `obtenir_comanda` necessita el nom del client (OCRD.CardName) i
+# `obtenir_direccio` les adreces amb els seus UDF (CRD1). Al Service Layer les
+# adreces venen inline amb l'interlocutor, aixi que una sola crida serveix les
+# dues coses. Es cachegen per no repetir-la a cada comanda del mateix client.
+INTERLOCUTORS = "BusinessPartners"
+_CAMPS_BP = "CardCode,CardName,BPAddresses"
+_TTL_BP = 600.0
+
+_bps: dict[str, dict | None] = {}
+_bps_a: dict[str, float] = {}
+_bps_lock = threading.Lock()
+
+
+def _bp(cli_codi: str) -> dict | None:
+    """Interlocutor amb les seves adreces, o None si no existeix."""
+    codi = (cli_codi or "").strip()
+    if not codi:
+        return None
+    with _bps_lock:
+        if codi in _bps and (time.monotonic() - _bps_a.get(codi, 0.0)) < _TTL_BP:
+            return _bps[codi]
+    files = client().tot(INTERLOCUTORS, select=_CAMPS_BP,
+                         filtre=f"CardCode eq {od.text(codi)}")
+    valor = files[0] if files else None
+    with _bps_lock:
+        if len(_bps) > 2000:
+            _bps.clear()
+            _bps_a.clear()
+        _bps[codi] = valor
+        _bps_a[codi] = time.monotonic()
+    return valor
+
+
+# ============================================================
+# obtenir_comanda(): ORDR + OCRD
+# ============================================================
+_CAMPS_CAPCALERA = ("DocEntry,DocNum,Series,CardCode,ShipToCode,DocDate,"
+                    "DocDueDate,DocumentStatus,NumAtCard,UpdateDate")
+
+# ORDR.DocStatus -> Orders.DocumentStatus, i amb valors diferents:
+# 'bost_Open'/'bost_Close' en lloc de 'O'/'C'.
+_ESTAT_DOC = {"bost_Open": "O", "bost_Close": "C"}
+
+
+def capcalera_comanda(series: int, docnum: int):
+    """Capcalera d'una comanda per (Series, DocNum), o None si no hi es.
+
+    El SQL fa tambe un LEFT JOIN amb NNM1 per treure `series_name`, pero aquell
+    camp NO s'usa en cap lloc del projecte: es pes mort de la consulta i aqui
+    no es reprodueix. (Si algun dia es necessita, el Service Layer el dona per
+    SeriesService_GetDocumentSeries amb Document='17'.)
+    """
+    files = client().tot(
+        COMANDES, select=_CAMPS_CAPCALERA,
+        filtre=f"Series eq {int(series)} and DocNum eq {int(docnum)}",
+    )
+    if not files:
+        return None
+    h = files[0]
+    bp = _bp(h.get("CardCode") or "")
+    return SimpleNamespace(
+        DocEntry=h.get("DocEntry"),
+        DocNum=h.get("DocNum"),
+        Series=h.get("Series"),
+        CardCode=h.get("CardCode"),
+        ShipToCode=h.get("ShipToCode"),
+        # Dates com a datetime naive, igual que les torna pyodbc: el codi de
+        # consultes.py fa `row.DocDate.year`, aixi que una cadena no hi val.
+        DocDate=_data_hora(h.get("DocDate")),
+        DocDueDate=_data_hora(h.get("DocDueDate")),
+        # DocStatus i UpdateDate no els fa servir ningu avui (com `series_name`),
+        # pero es mapegen igualment: si algun dia algu els llegeix, val mes que
+        # hi siguin amb el valor correcte que no que peti nomes per Service Layer.
+        DocStatus=_ESTAT_DOC.get(h.get("DocumentStatus"), h.get("DocumentStatus")),
+        NumAtCard=h.get("NumAtCard"),
+        UpdateDate=_data_hora(h.get("UpdateDate")),
+        cli_nom=((bp or {}).get("CardName") or "").strip(),
+    )
+
+
+# ============================================================
+# obtenir_direccio(): CRD1 + UDFs
+# ============================================================
+def direccio(cli_codi: str, adr_codi: str):
+    """Adreca d'enviament amb els seus UDF, o None si no es troba.
+
+    El SQL fa dues consultes: primera amb `AdresType = 'S'` i, si no troba res,
+    una segona sense filtrar per tipus (hi ha adreces d'entrega que no el
+    tenen). Aqui les adreces venen totes inline amb l'interlocutor, aixi que es
+    resol amb una sola lectura i la mateixa precedencia en Python.
+    """
+    bp = _bp(cli_codi)
+    if bp is None:
+        return None
+    adr = (adr_codi or "").strip()
+    coincidencies = [a for a in (bp.get("BPAddresses") or [])
+                     if (a.get("AddressName") or "").strip() == adr]
+    if not coincidencies:
+        return None
+    # Precedencia: primer les d'enviament, com fa la primera consulta del SQL.
+    enviament = [a for a in coincidencies if a.get("AddressType") == "bo_ShipTo"]
+    a = (enviament or coincidencies)[0]
+    return SimpleNamespace(
+        adr_codi=(a.get("AddressName") or "").strip(),
+        street=(a.get("Street") or "").strip(),
+        city=(a.get("City") or "").strip(),
+        U_SEITIPOD=a.get("U_SEITIPOD"),
+        U_SEISACOSB=a.get("U_SEISACOSB"),
+        U_SEIMAXSP=a.get("U_SEIMAXSP"),
+        U_SEIPEDIDOM=a.get("U_SEIPEDIDOM"),
+        U_SEIPREVAL=a.get("U_SEIPREVAL"),
+    )
+
+
+# ============================================================
+# obtenir_palet_comanda(): linia de palet dins la comanda
+# ============================================================
+def palet_comanda(series: int, docnum: int):
+    """Primera linia de palet de la comanda, o None.
+
+    Condicions del SQL que es replican: unitat de venda de l'article 'UNI', la
+    descripcio de la LINIA conte 'PALET', i s'exclouen les linies que hi ha
+    afegit el propi motor (U_FCAfegit = 'S') — si no, la segona execucio del
+    boto llegiria com a palet demanat pel client el que ell mateix va inserir.
+    """
+    art = articles()
+    candidats = []
+    for o in _comandes_amb_linies(series, docnum):
+        for l in o.get("DocumentLines") or []:
+            codi = (l.get("ItemCode") or "").strip()
+            dades = art.get(codi)
+            if dades is None:                       # INNER JOIN amb OITM
+                continue
+            if (dades.get("tunitat") or "").strip() != "UNI":
+                continue
+            descrip = (l.get("ItemDescription") or "").strip()
+            if "PALET" not in descrip.upper():
+                continue
+            if l.get("U_FCAfegit") == "S":
+                continue
+            candidats.append((l.get("LineNum") or 0, codi, descrip))
+    if not candidats:
+        return None
+    candidats.sort(key=lambda x: x[0])              # ORDER BY l.LineNum
+    _, codi, descrip = candidats[0]
+    return SimpleNamespace(art_codi=codi, art_descrip=descrip)
+
+
+# ============================================================
+# obtenir_palet_client(): @SEITARIFACAB + @SEITARIFADET
+# ============================================================
+# Les dues UDT de tarifes son l'UDO `SEITARIFA`, i el detall arriba INLINE com
+# a `SEITARIFADETCollection`. Verificat: 3.912 capceleres i 20.416 linies, les
+# mateixes que tenen les taules al SQL. (Les taules filles d'UDO no existeixen
+# com a entitat propia al Service Layer, pero si com a col·leccio del pare: es
+# per aixo que aixo es viable.)
+# Avis d'una sola vegada si algu activa aquesta funcio per Service Layer. Un
+# comentari al codi no el veu qui edita el .env; una linia al log, si.
+_avisat_palet_client = False
+
+
+def _avisa_palet_client() -> None:
+    global _avisat_palet_client
+    _avisat_palet_client = True
+    logger.warning(
+        "obtenir_palet_client esta llegint pel Service Layer. Aixo canvia el "
+        "tipus de palet de ~119 dels 436 clients amb palet negociat, perque el "
+        "SQL original no es determinista. Vegeu "
+        "docs/bug_palet_tarifa_no_determinista.md. Si no era intencionat, "
+        "treu SAP_BACKEND_OBTENIR_PALET_CLIENT del .env."
+    )
+
+
+TARIFES = "SEITARIFA"
+_CAMPS_TARIFA = ("DocEntry,U_SEICardCode,U_SEIDireccion,U_SEIActivo,Canceled,"
+                 "SEITARIFADETCollection")
+
+
+def palet_client(cli_codi: str, adr_codi: str | None):
+    """Tipus de palet negociat pel client, o None.
+
+    NO ACTIVAR sense decisio de negoci. Vegeu
+    docs/bug_palet_tarifa_no_determinista.md.
+
+    El motiu: el SQL original fa TOP 1 amb ORDER BY nomes sobre la capcalera
+    (direccio i DocEntry), i CAP ordre sobre la linia. Quan una tarifa te mes
+    d'una linia de palet — 120 de 429 tarifes actives — quina guanya la
+    decideix el pla d'execucio, no la consulta. Ni LineId ni VisOrder expliquen
+    el que torna avui.
+
+    Aquesta implementacio agafa la primera linia per LineId, que es el que diu
+    el docstring de `consultes.obtenir_palet_client`. Es determinista, pero
+    mesurat contra la base sencera canvia el tipus de palet a **119 dels 436
+    clients** que en tenen un negociat. Es un canvi de resultat de negoci
+    (quin palet fisic rep un client), no una questio tecnica.
+
+    Mentre no hi hagi decisio, aquesta funcio es queda per SQL.
+    """
+    if not _avisat_palet_client:
+        _avisa_palet_client()
+    codi = (cli_codi or "").strip()
+    if not codi:
+        return None
+    capceleres = client().tot(
+        TARIFES, select=_CAMPS_TARIFA,
+        filtre=od.i(f"U_SEICardCode eq {od.text(codi)}",
+                    "U_SEIActivo eq " + od.text("Y"),
+                    "Canceled ne " + od.text("Y")),
+    )
+    if not capceleres:
+        return None
+
+    adr = (adr_codi or "").strip() or None
+    ara = datetime.now()
+
+    def prioritat(c: dict) -> tuple:
+        mateixa_adr = (adr is not None
+                       and (c.get("U_SEIDireccion") or "").strip() == adr)
+        return (0 if mateixa_adr else 1, -int(c.get("DocEntry") or 0))
+
+    for c in sorted(capceleres, key=prioritat):
+        linies = sorted((c.get("SEITARIFADETCollection") or []),
+                        key=lambda d: (d.get("LineId") or 0))
+        for d in linies:
+            nom = (d.get("U_SEIItemName") or "").strip()
+            if not nom.upper().startswith("PALET"):
+                continue
+            fi = _data_hora(d.get("U_SEIFechaFin"))
+            if fi is not None and fi < ara:          # U_SEIFechaFin >= GETDATE()
+                continue
+            art_codi = (d.get("U_SEIItemCode") or "").strip()
+            if not art_codi:
+                continue
+            return SimpleNamespace(art_codi=art_codi, art_descrip=nom)
+    return None

@@ -444,7 +444,10 @@ def obtenir_comanda(conn, sal_codigo: str, cpa_albara: str,
         LEFT JOIN NNM1 ns WITH (NOLOCK) ON ns.Series = h.Series AND ns.ObjectCode = '17'
         WHERE h.Series = ? AND h.DocNum = ?
     """
-    row = conn.execute(sql, series, docnum).fetchone()
+    if _per_sl("obtenir_comanda"):
+        row = _sl.capcalera_comanda(series, docnum)
+    else:
+        row = conn.execute(sql, series, docnum).fetchone()
     if not row:
         raise ValueError(f"Comanda {sal_codigo}/{cpa_albara} no trobada a SAP")
 
@@ -634,8 +637,14 @@ def obtenir_direccio(conn, cli_codi: str, adr_codi: str) -> Direccio:
         FROM CRD1 a WITH (NOLOCK)
         WHERE a.CardCode = ? AND a.Address = ? AND a.AdresType = 'S'
     """
-    r = conn.execute(sql, cli_codi, adr_codi).fetchone()
-    if r is None:
+    if _per_sl("obtenir_direccio"):
+        # La implementacio de Service Layer ja resol les dues passades (amb
+        # tipus d'adreça i sense) en una sola lectura, amb la mateixa
+        # precedencia, aixi que aqui no cal el fallback de sota.
+        r = _sl.direccio(cli_codi, adr_codi)
+    else:
+        r = conn.execute(sql, cli_codi, adr_codi).fetchone()
+    if r is None and not _per_sl("obtenir_direccio"):
         # Fallback sense filtrar per tipus adreça (les d'entrega de vegades no tenen AdresType='S').
         sql2 = """
             SELECT TOP 1
@@ -724,7 +733,10 @@ def obtenir_palet_client(cli_codi: str, adr_codi: str | None = None, conn=None) 
                 c.DocEntry DESC
         """
         adr = (adr_codi or "").strip() or None
-        r = conn.execute(sql, cli_codi, adr, adr).fetchone()
+        if _per_sl("obtenir_palet_client"):
+            r = _sl.palet_client(cli_codi, adr)
+        else:
+            r = conn.execute(sql, cli_codi, adr, adr).fetchone()
     finally:
         if _own_conn:
             conn.close()
@@ -889,7 +901,10 @@ def obtenir_palet_comanda(conn, sal_codigo: str, cpa_albara: str, eje_ejercicio:
           AND (l.U_FCAfegit IS NULL OR l.U_FCAfegit <> 'S')
         ORDER BY l.LineNum
     """
-    row = conn.execute(sql, series, docnum).fetchone()
+    if _per_sl("obtenir_palet_comanda"):
+        row = _sl.palet_comanda(series, docnum)
+    else:
+        row = conn.execute(sql, series, docnum).fetchone()
     result = {"art_codi": row.art_codi, "art_descrip": row.art_descrip} if row else None
 
     if len(_palet_comanda_cache) >= 500:
