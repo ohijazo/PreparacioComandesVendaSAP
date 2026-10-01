@@ -16,3 +16,7 @@ Thumbs.db
 logs/
 # Dumps de SPs internes SEIDOR — no committar codi de tercers.
 scripts/_dump_*.sql
+
+# Instantania de l'arnes de paritat del motor: conte noms i adreces de
+# clients reals. Mai al repositori.
+paritat_motor_snapshot.json
