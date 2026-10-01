@@ -563,8 +563,11 @@ def obtenir_linies(conn, sal_codigo: str, cpa_albara: str, eje_ejercicio: str | 
     except ValueError:
         raise ValueError(f"sal_codigo/cpa_albara no numèric: {sal_codigo}/{cpa_albara}")
 
-    sql = _LINIES_SELECT + " WHERE h.Series = ? AND h.DocNum = ? ORDER BY l.LineNum"
-    rows = conn.execute(sql, series, docnum).fetchall()
+    if _per_sl("obtenir_linies"):
+        rows = _sl.linies_comanda(series, docnum)
+    else:
+        sql = _LINIES_SELECT + " WHERE h.Series = ? AND h.DocNum = ? ORDER BY l.LineNum"
+        rows = conn.execute(sql, series, docnum).fetchall()
     linies = [_row_to_linia(r) for r in rows]
 
     if cache_key in _linies_cache:
@@ -591,13 +594,16 @@ def obtenir_linies_batch(conn, pedi_keys: list[tuple]) -> list[Linia]:
         except ValueError:
             raise ValueError(f"clau no numèrica: {k}")
 
-    conditions = " OR ".join(["(h.Series = ? AND h.DocNum = ?)"] * len(parsed))
-    params: list = []
-    for series, docnum in parsed:
-        params.extend([series, docnum])
+    if _per_sl("obtenir_linies_batch"):
+        rows = _sl.linies_batch(parsed)
+    else:
+        conditions = " OR ".join(["(h.Series = ? AND h.DocNum = ?)"] * len(parsed))
+        params: list = []
+        for series, docnum in parsed:
+            params.extend([series, docnum])
 
-    sql = _LINIES_SELECT + f" WHERE {conditions} ORDER BY h.DocNum, l.LineNum"
-    rows = conn.execute(sql, *params).fetchall()
+        sql = _LINIES_SELECT + f" WHERE {conditions} ORDER BY h.DocNum, l.LineNum"
+        rows = conn.execute(sql, *params).fetchall()
     return [_row_to_linia(r) for r in rows]
 
 
