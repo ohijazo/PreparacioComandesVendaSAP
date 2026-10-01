@@ -66,6 +66,24 @@ import pyodbc
 
 from models import Comanda, Direccio, Linia  # compartits via _bootstrap
 
+# Backend de dades: SQL Server directe (aquest modul) o Service Layer
+# (consultes_sl). Es commuta per variable d'entorn; vegeu sl_lectura/backend.py.
+# Import amb guarda: si la capa de Service Layer no hi fos, aquesta app ha de
+# poder seguir servint per SQL sense arrencar malament.
+try:
+    import consultes_sl as _sl
+    from sl_lectura import backend as _backend
+except ImportError:  # pragma: no cover
+    _sl = None
+    _backend = None
+
+
+def _per_sl(funcio: str) -> bool:
+    """True si aquesta funcio ha de llegir pel Service Layer."""
+    if _sl is None or _backend is None:
+        return False
+    return _backend.backend_de(funcio) == _backend.SL
+
 logger = logging.getLogger("motor_sap")
 
 # ============================================================
@@ -880,8 +898,11 @@ def obtenir_palet_comanda(conn, sal_codigo: str, cpa_albara: str, eje_ejercicio:
 def obtenir_descrip_article(conn, art_codi: str) -> str:
     if art_codi in _descrip_cache:
         return _descrip_cache[art_codi]
-    sql = "SELECT TOP 1 RTRIM(ItemName) AS art_descrip FROM OITM WITH (NOLOCK) WHERE ItemCode = ?"
-    row = conn.execute(sql, art_codi).fetchone()
+    if _per_sl("obtenir_descrip_article"):
+        row = _sl.descrip_article(art_codi)
+    else:
+        sql = "SELECT TOP 1 RTRIM(ItemName) AS art_descrip FROM OITM WITH (NOLOCK) WHERE ItemCode = ?"
+        row = conn.execute(sql, art_codi).fetchone()
     result = (row.art_descrip or art_codi) if row else art_codi
     if len(_descrip_cache) >= _DESCRIP_CACHE_MAX:
         _descrip_cache.clear()
