@@ -1059,3 +1059,6 @@ línies, i no filtra `LineStatus`.
    i mirar `sys.objects.modify_date` per saber quan ha canviat.
 2. Qualsevol camp que l'SP exigeixi a una línia nostra ha d'anar també al PATCH
    previ al tancament (G2.3 no deixa posar-lo al mateix PATCH del close).
+3. **Afegir un Valid Value a un UDF també exigeix reiniciar el SL** (L7). Després
+   d'afegir `EMBALATGE` el SL continuava retornant `-1004 '"EMBALATGE" is not a
+   valid value'` amb la llista vella, tot i que `UFD1` ja el tenia.
