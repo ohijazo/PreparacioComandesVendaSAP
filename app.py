@@ -17,6 +17,8 @@ from sap_line_builder import (
     generar_linies_palet_sap,
     MARCADOR_LINIA_PALET_UDF,
     MARCADOR_LINIA_PALET_VALOR,
+    MOTIU_PREU_ZERO_UDF,
+    MOTIU_PREU_ZERO_PALET,
 )
 
 # ============================================================
@@ -624,6 +626,7 @@ def api_afegir_palets(doc_entry: int):
             MARCADOR_LINIA_PALET_VALOR,
             linies_noves,
             owned_item_codes=articles_palet,
+            zero_price_fields={MOTIU_PREU_ZERO_UDF: MOTIU_PREU_ZERO_PALET},
         )
 
         elapsed = time.time() - t0

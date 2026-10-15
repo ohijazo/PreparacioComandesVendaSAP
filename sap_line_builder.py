@@ -17,6 +17,9 @@ Cada palet físic (`es_fisic=True`) es converteix en una línia amb:
   quan l'operari torni a clicar el botó (idempotència).
 - `TaxCode` opcional via variable d'entorn `SAP_TAX_CODE_PALET`. Si buida,
   SAP fa fallback al TaxCode per defecte de l'article a OITM.
+- `U_SEIMotiuPreuZero` = `MOTIU_PREU_ZERO_PALET` a les línies sense preu
+  negociat. Des del 2026-10-08 el `SBO_SP_TransactionNotification` rebutja
+  (error 104) qualsevol comanda amb una línia a `Price=0` sense motiu.
 """
 from __future__ import annotations
 
@@ -42,6 +45,13 @@ FREE_TEXT_MARKER = "Afegit per motor embalatges"
 MARCADOR_LINIA_PALET_VALOR = "S"
 MARCADOR_LINIA_PALET_UDF = "U_FCAfegit"
 
+# Motiu de preu zero per les línies palet sense tarifa. El valor ha d'existir
+# com a Valid Value de RDR1.U_SEIMotiuPreuZero (si no, SL retorna -1004).
+MOTIU_PREU_ZERO_UDF = "U_SEIMotiuPreuZero"
+MOTIU_PREU_ZERO_PALET = (
+    os.environ.get("SAP_MOTIU_PREU_ZERO_PALET", "").strip() or "EMBALATGE"
+)
+
 
 def generar_linies_palet_sap(
     palets,  # list[PaletResum] — evitem import per raons d'aïllament
@@ -62,6 +72,8 @@ def generar_linies_palet_sap(
     - Si `preus_client` conté una entrada per l'`ItemCode` del palet, el seu
       valor es passa com a `UnitPrice`. En cas contrari s'omet el camp
       (SAP el deixa a 0 si no troba tarifa OSPP/ITM1).
+    - Sense preu negociat (o preu 0) la línia porta `U_SEIMotiuPreuZero`
+      perquè l'SP de SAP no rebutgi la comanda (error 104).
 
     Si el motor retorna múltiples `PaletResum` amb el mateix `art_codi`
     (pot passar quan diferents regles assignen el mateix tipus de palet),
@@ -86,8 +98,12 @@ def generar_linies_palet_sap(
             "FreeText": FREE_TEXT_MARKER,
             MARCADOR_LINIA_PALET_UDF: MARCADOR_LINIA_PALET_VALOR,
         }
-        if p.art_codi in preus:
+        if preus.get(p.art_codi):
             entry["UnitPrice"] = preus[p.art_codi]
+        else:
+            if p.art_codi in preus:
+                entry["UnitPrice"] = preus[p.art_codi]
+            entry[MOTIU_PREU_ZERO_UDF] = MOTIU_PREU_ZERO_PALET
         if whs_code:
             entry["WarehouseCode"] = whs_code
         if TAX_CODE_PALET:

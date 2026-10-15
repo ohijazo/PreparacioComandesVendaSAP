@@ -734,3 +734,100 @@ def test_sense_palets_calculats_es_tanquen_totes_les_linies_palet():
     assert json.loads(patch_calls[0].request.body) == {
         "DocumentLines": [{"LineNum": 1, "LineStatus": "bost_Close"}]
     }
+
+
+# ============================================================
+# Validació 104 de SAP: línies a preu 0 han de portar motiu
+# ============================================================
+
+def test_generar_linies_sense_preu_porta_motiu_preu_zero():
+    """Sense tarifa (o tarifa 0) → U_SEIMotiuPreuZero; amb preu > 0 → no."""
+    palets = [
+        _PaletResumStub("01000", "PALET PLASTIC", 1, es_fisic=True),
+        _PaletResumStub("01030", "PALET FUSTA", 1, es_fisic=True),
+        _PaletResumStub("01010", "BASE PALET", 1, es_fisic=False),
+    ]
+    preus = {"01000": 35.0, "01010": 0.0}
+
+    linies = {l["ItemCode"]: l for l in slb.generar_linies_palet_sap(
+        palets, whs_code="01", preus_client=preus)}
+
+    assert slb.MOTIU_PREU_ZERO_UDF not in linies["01000"]
+    assert linies["01030"][slb.MOTIU_PREU_ZERO_UDF] == slb.MOTIU_PREU_ZERO_PALET
+    assert linies["01010"][slb.MOTIU_PREU_ZERO_UDF] == slb.MOTIU_PREU_ZERO_PALET
+    assert linies["01010"]["UnitPrice"] == 0.0
+    assert slb.MOTIU_PREU_ZERO_PALET == "EMBALATGE"
+
+
+@responses.activate
+def test_patch_motiu_abans_de_tancar_linies_a_preu_zero():
+    """Línia del motor antiga a preu 0 sense motiu que s'ha de tancar: l'SP
+    validaria el PATCH de tancament i el rebutjaria. S'informa el motiu en
+    un PATCH previ (amb placeholders) i després es tanca."""
+    _login_response()
+    responses.add(
+        responses.GET,
+        f"{URL}/Orders(310)",
+        json={
+            "DocEntry": 310,
+            "DocumentLines": [
+                {"LineNum": 0, "ItemCode": "40150", "Quantity": 250, "Price": 0.98,
+                 "U_FCAfegit": None, "LineStatus": "bost_Open"},
+                {"LineNum": 1, "ItemCode": "01030", "Quantity": 2, "Price": 0,
+                 "U_FCAfegit": "S", "U_SEIMotiuPreuZero": None, "LineStatus": "bost_Open"},
+                {"LineNum": 2, "ItemCode": "01010", "Quantity": 1, "Price": 0,
+                 "U_FCAfegit": "S", "U_SEIMotiuPreuZero": "EMBALATGE", "LineStatus": "bost_Open"},
+            ],
+        },
+        status=200,
+    )
+    responses.add(responses.PATCH, f"{URL}/Orders(310)", status=204)
+
+    c = _make_client()
+    c.login()
+    zpf = {"U_SEIMotiuPreuZero": "EMBALATGE"}
+    stats = c.replace_marked_lines(
+        310, "U_FCAfegit", "S",
+        [{"ItemCode": "01010", "Quantity": 2, "U_FCAfegit": "S", **zpf}],
+        zero_price_fields=zpf,
+    )
+
+    assert stats == {"removed": 1, "updated": 1, "added": 0, "kept": 1}
+    patches = [json.loads(call.request.body) for call in responses.calls
+               if call.request.method == "PATCH"]
+    assert len(patches) == 3
+    # PATCH #0: motiu només a la línia que no en tenia; la resta placeholders
+    assert patches[0]["DocumentLines"] == [
+        {"LineNum": 0},
+        {"LineNum": 1, "U_SEIMotiuPreuZero": "EMBALATGE"},
+        {"LineNum": 2},
+    ]
+    # PATCH #1: tancament pur
+    assert patches[1]["DocumentLines"] == [{"LineNum": 1, "LineStatus": "bost_Close"}]
+
+
+@responses.activate
+def test_sense_linies_a_preu_zero_no_fa_patch_previ():
+    _login_response()
+    responses.add(
+        responses.GET,
+        f"{URL}/Orders(311)",
+        json={
+            "DocEntry": 311,
+            "DocumentLines": [
+                {"LineNum": 0, "ItemCode": "01030", "Quantity": 2, "Price": 12.5,
+                 "U_FCAfegit": "S", "LineStatus": "bost_Open"},
+            ],
+        },
+        status=200,
+    )
+    responses.add(responses.PATCH, f"{URL}/Orders(311)", status=204)
+
+    c = _make_client()
+    c.login()
+    c.replace_marked_lines(311, "U_FCAfegit", "S", [],
+                           zero_price_fields={"U_SEIMotiuPreuZero": "EMBALATGE"})
+
+    patches = [json.loads(call.request.body) for call in responses.calls
+               if call.request.method == "PATCH"]
+    assert patches == [{"DocumentLines": [{"LineNum": 0, "LineStatus": "bost_Close"}]}]

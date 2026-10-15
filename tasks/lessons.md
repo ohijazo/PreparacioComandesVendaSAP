@@ -1035,3 +1035,27 @@ haver-la llegit malament, aquí fa exactament la feina per a la qual serveix.
 
 El vhost de Kais té el mateix patró i, per tant, el mateix `Alias` inert. No s'ha
 tocat (variant en producció), però queda apuntat per si algun dia es vol.
+
+## L16 — Un error de SL amb codi -1116 és una validació de l'SP, no del motor
+
+### Context
+
+El 2026-10-15 el botó "Calcular embalatges" va començar a fallar amb
+`Service Layer: Error 400 a PATCH Orders(310): -1116 '(104) Comanda amb articles
+a preu zeo sense motiu informat'`. El codi del motor no havia canviat.
+
+### Causa
+
+El 2026-10-08 algú va afegir una regla nova al `SBO_SP_TransactionNotification`:
+cap comanda (object 17) pot tenir una línia a `Price=0` amb
+`RDR1.U_SEIMotiuPreuZero` buit. Els palets sense tarifa del motor van a preu 0.
+L'SP valida **tot el document a cada transacció**, també el PATCH que només tanca
+línies, i no filtra `LineStatus`.
+
+### Regla per al futur
+
+1. `-1116` + `(N) missatge` = `@error`/`@error_message` de l'SP. Buscar-lo directament:
+   `SELECT o.name FROM sys.sql_modules m JOIN sys.objects o ON ... WHERE m.definition LIKE '%(text del missatge)%'`
+   i mirar `sys.objects.modify_date` per saber quan ha canviat.
+2. Qualsevol camp que l'SP exigeixi a una línia nostra ha d'anar també al PATCH
+   previ al tancament (G2.3 no deixa posar-lo al mateix PATCH del close).

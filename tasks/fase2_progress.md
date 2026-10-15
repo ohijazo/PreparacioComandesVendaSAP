@@ -689,3 +689,37 @@ Kais té el mateix patró i el mateix `Alias` inert; no s'ha tocat.
 3. Comunicar la URL als usuaris.
 4. Opcional i posterior: reapuntar la UF-038 al nom nou i tancar Gunicorn a
    `127.0.0.1:5002`.
+
+## §2.12 Validació 104: línies a preu zero sense motiu (2026-10-15)
+
+### Problema
+Botó a la comanda 26600310 (DocEntry 310) → `-1116 '(104) Comanda amb articles a
+preu zeo sense motiu informat'`. Regla nova al `SBO_SP_TransactionNotification`
+(modificat 2026-10-08): cap línia de comanda a `Price=0` amb
+`RDR1.U_SEIMotiuPreuZero` buit. Els palets sense tarifa SEITARIFA i els BASE
+PALET entren a 0.
+
+Valors vàlids del camp: MOSTRA, COMPENSACIO, ACCIO COMERCIAL. Decisió: valor nou
+**EMBALATGE** per les línies del motor.
+
+### Canvis
+- `sap_line_builder.py`: les línies sense preu negociat (o preu 0) porten
+  `U_SEIMotiuPreuZero = MOTIU_PREU_ZERO_PALET` (env `SAP_MOTIU_PREU_ZERO_PALET`,
+  per defecte `EMBALATGE`).
+- `sap_service_layer.py`: `replace_marked_lines(..., zero_price_fields=...)`.
+  Si s'ha de tancar alguna línia, abans es fa un **PATCH #0** que informa el motiu
+  a les línies nostres obertes a preu 0 que no en tenen (amb placeholders). Sense
+  això el PATCH de tancament fallava a l'SP abans d'arribar a l'update.
+- `app.py`: passa `zero_price_fields` a l'endpoint `/api/afegir-palets`.
+- Tests: 3 nous a `tests/test_afegir_palets.py` (135 en verd).
+
+### Pendent
+1. **SAP**: afegir el valor vàlid `EMBALATGE` a `RDR1.U_SEIMotiuPreuZero`. Fins
+   llavors SL rebutjarà les línies amb `-1004`.
+2. **Consultor**: que la validació 104 ignori les línies tancades
+   (`AND T1.LineStatus='O'`). 12 comandes obertes tenen línies tancades a preu 0
+   sense motiu i no es poden tornar a desar ni des del client SAP.
+   Petició: `docs/peticio_consultor_validacio_104.md`.
+3. Línies manuals de l'operari a preu 0 sense motiu continuaran bloquejant el
+   botó (és la regla de negoci; el missatge de SAP ja ho explica).
+4. Deploy a Ubuntu.

@@ -301,6 +301,7 @@ class SLClient:
         new_lines: list[dict[str, Any]],
         header_fields: dict[str, Any] | None = None,
         owned_item_codes: set[str] | None = None,
+        zero_price_fields: dict[str, Any] | None = None,
     ) -> dict[str, int]:
         """Sincronitza les línies "marcades" d'una Order amb `new_lines`.
 
@@ -333,7 +334,15 @@ class SLClient:
         es recicla la **manual**: l'operari ha de retrobar al document la línia
         que ell va escriure, amb la quantitat corregida.
 
+        `zero_price_fields` (ex. `{"U_SEIMotiuPreuZero": "EMBALATGE"}`) són els
+        camps que SAP exigeix a una línia amb `Price=0` (validació 104 del
+        `SBO_SP_TransactionNotification`). L'SP valida tot el document, també
+        al PATCH de tancament, i aquest no pot portar altres camps (-5002): per
+        això les línies nostres a preu 0 sense aquests camps s'arreglen abans.
+
         Estructura de crides:
+        - **PATCH #0** (només si cal tancar i hi ha línies nostres a preu 0
+          sense `zero_price_fields`): els informa, amb placeholders.
         - **PATCH #1** (només si cal tancar): payload de tancament pur.
           SL rebutja "close + altres modificacions" al mateix PATCH
           amb -5002, per això va aïllat.
@@ -351,7 +360,7 @@ class SLClient:
         with self._lock:
             return self._replace_marked_lines_locked(
                 doc_entry, marker_field, marker_value, new_lines,
-                header_fields, owned_item_codes,
+                header_fields, owned_item_codes, zero_price_fields,
             )
 
     def _replace_marked_lines_locked(
@@ -362,6 +371,7 @@ class SLClient:
         new_lines: list[dict[str, Any]],
         header_fields: dict[str, Any] | None = None,
         owned_item_codes: set[str] | None = None,
+        zero_price_fields: dict[str, Any] | None = None,
     ) -> dict[str, int]:
         """Cos de `replace_marked_lines`. Assumeix `self._lock` ja pres."""
         # 1. GET línies actuals
@@ -422,6 +432,27 @@ class SLClient:
                 to_add.append(payload)
 
         to_close = [l for l in open_marked if l["LineNum"] not in consumed]
+
+        # 3b. PATCH #0: si el tancament ha de passar l'SP (validació 104),
+        #     cal que cap línia nostra quedi a preu 0 sense motiu. Les que
+        #     tancarem no es podran tocar després, i les que actualitzarem
+        #     encara no tenen el motiu quan s'executa el PATCH #1.
+        if to_close and zero_price_fields:
+            sense_motiu = {
+                l["LineNum"] for l in open_marked
+                if float(l.get("Price") or 0) == 0
+                and any(not l.get(k) for k in zero_price_fields)
+            }
+            if sense_motiu:
+                fix_body = {
+                    "DocumentLines": [
+                        {"LineNum": l["LineNum"], **zero_price_fields}
+                        if l["LineNum"] in sense_motiu
+                        else {"LineNum": l["LineNum"]}
+                        for l in current_lines
+                    ]
+                }
+                self._request("PATCH", f"Orders({doc_entry})", json_body=fix_body)
 
         # 4. PATCH #1: tancament pur (només si cal).
         #    SL rebutja close + altres modificacions al mateix PATCH (-5002).
