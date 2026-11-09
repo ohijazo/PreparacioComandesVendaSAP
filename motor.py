@@ -8,7 +8,7 @@ from consultes import (
     obtenir_palet_comanda, obtenir_palet_client,
     obtenir_descrip_article,
 )
-from regles import aplicar_regles, ART_BASE_PALET, TUNITATS_COMPUTABLES  # compartit via _bootstrap
+from regles import aplicar_regles, ART_BASE_PALET, ART_PALET_FUSTA_EU, TUNITATS_COMPUTABLES  # compartit via _bootstrap
 from models import Estat, PaletResum  # compartit via _bootstrap
 
 
@@ -272,7 +272,21 @@ def _resolver_tipus_palet(conn, sal_codigo, cpa_albara, resultat, direccio, eje=
     if palet_comanda:
         return palet_comanda, "detectat de la comanda", True
 
-    # 3. Fallback: BasePalet
+    # 3. Fallback. Amb descàrrega PALET el client rep palets físics: un
+    # BasePalet (lògic, de descàrrega manual) seria incoherent (cas 51/0008502).
+    if direccio.tipus_descarrega == "PALET":
+        resultat.missatges.append(
+            f"Direcció {direccio.cli_codi}/{direccio.adr_codi} amb descàrrega PALET "
+            f"sense palet definit a les condicions del client ni a la comanda: s'assigna "
+            f"{ART_PALET_FUSTA_EU} per defecte. Cal donar d'alta el palet del client."
+        )
+        if resultat.estat == Estat.CALCULAT:
+            resultat.estat = Estat.CALCULAT_AMB_AVISOS
+        return {
+            "art_codi": ART_PALET_FUSTA_EU,
+            "art_descrip": obtenir_descrip_article(conn, ART_PALET_FUSTA_EU),
+        }, "fallback palet europeu (descàrrega PALET sense palet a les condicions ni a la comanda)", True
+
     return {
         "art_codi": ART_BASE_PALET,
         "art_descrip": obtenir_descrip_article(conn, ART_BASE_PALET),
