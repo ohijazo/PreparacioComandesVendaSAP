@@ -489,7 +489,11 @@ _LINIES_SELECT = """
         -- (l.Quantity = PackQty * SalPackUn). Fallback a Quantity si PackQty=0
         -- (articles sense paquet definit, ex: GRA/UNI que RF1 exclou igualment).
         COALESCE(NULLIF(l.PackQty, 0), l.Quantity) AS linea_unidades,
-        RTRIM(i.SalUnitMsr) AS tunitat,
+        -- Granel = unitat GRA/KG/KGS, o propietat 5 ("Es Granel") si la
+        -- unitat no es de sacs -> "GRA", que es el que reconeix RF1. A
+        -- produccio el granel te SalUnitMsr 'KGS'. Vegeu unitats_sap.py.
+        CASE WHEN (UPPER(RTRIM(ISNULL(i.SalUnitMsr, ''))) IN ('GRA', 'KG', 'KGS') OR (i.QryGroup5 = 'Y' AND UPPER(RTRIM(ISNULL(i.SalUnitMsr, ''))) NOT LIKE 'S[0-9]%'))
+             THEN 'GRA' ELSE RTRIM(i.SalUnitMsr) END AS tunitat,
         i.SalPackUn AS sal_pack_un,
         i.U_SEIUnitatsPalet AS uxc,
         i.SWeight1 AS pes,
@@ -965,7 +969,7 @@ def obtenir_ultimes_comandes(conn, limit: int = 1000) -> list[dict]:
               SELECT 1 FROM RDR1 lg WITH (NOLOCK)
               INNER JOIN OITM ig WITH (NOLOCK) ON ig.ItemCode = lg.ItemCode
               WHERE lg.DocEntry = h.DocEntry
-                AND ig.SalUnitMsr = 'GRA'
+                AND (UPPER(RTRIM(ISNULL(ig.SalUnitMsr, ''))) IN ('GRA', 'KG', 'KGS') OR (ig.QryGroup5 = 'Y' AND UPPER(RTRIM(ISNULL(ig.SalUnitMsr, ''))) NOT LIKE 'S[0-9]%'))
                 AND NOT EXISTS (
                     SELECT 1 FROM RDR1 lp WITH (NOLOCK)
                     INNER JOIN OITM ip WITH (NOLOCK) ON ip.ItemCode = lp.ItemCode

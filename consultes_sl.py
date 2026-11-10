@@ -35,6 +35,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from sl_lectura import cache_articles
+from unitats_sap import tunitat_efectiva
 from sl_lectura import odata as od
 from sl_lectura.client import client
 
@@ -101,7 +102,10 @@ def descrip_article(art_codi: str):
 #   OITM.U_SEIUnitatsPalet      -> U_SEIUnitatsPalet
 #   OITM.U_SEIUnitatsApilables  -> U_SEIUnitatsApilables
 #   OITM.U_SEIPaletProd         -> U_SEIPaletProd
-#   OITM.QryGroup2/3/4          -> Properties2/3/4
+#   OITM.QryGroup2/3/4/5        -> Properties2/3/4/5
+#
+# La unitat de venda es normalitza amb `unitats_sap.tunitat_efectiva`: el
+# granel (propietat 5 o unitat GRA/KG/KGS) es "GRA", com al SQL.
 #
 # Compte amb dues d'aquestes:
 #   - `SalesItemsPerUnit` SEMBLA l'equivalent de SalPackUn i NO HO ES: val 1.0
@@ -114,7 +118,7 @@ ARTICLES = "Items"
 _CAMPS_ARTICLE = (
     "ItemCode,ItemName,SalesUnit,SalesQtyPerPackUnit,SalesUnitWeight,"
     "U_SEIUnitatsPalet,U_SEIUnitatsApilables,U_SEIPaletProd,"
-    "Properties2,Properties3,Properties4"
+    "Properties2,Properties3,Properties4,Properties5"
 )
 _TTL_ARTICLES = 900.0
 
@@ -135,7 +139,7 @@ def _flag(valor) -> str | None:
 def _normalitza_article(f: dict) -> tuple[str, dict]:
     codi = (f.get("ItemCode") or "").strip()
     return codi, {
-        "tunitat": (f.get("SalesUnit") or "").strip(),
+        "tunitat": tunitat_efectiva(f.get("SalesUnit"), f.get("Properties5")),
         "sal_pack_un": f.get("SalesQtyPerPackUnit"),
         "pes": f.get("SalesUnitWeight"),
         "uxc": f.get("U_SEIUnitatsPalet"),

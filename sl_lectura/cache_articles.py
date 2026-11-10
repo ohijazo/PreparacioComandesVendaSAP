@@ -21,13 +21,15 @@ import os
 import threading
 import time
 
+from unitats_sap import tunitat_efectiva
+
 from . import odata as q
 from .client import client
 
 log = logging.getLogger("agrupacio")
 
 ARTICLES = "Items"
-_CAMPS = "ItemCode,ItemName,SalesUnit"
+_CAMPS = "ItemCode,ItemName,SalesUnit,Properties5"
 
 _mapa: dict[str, dict] | None = None
 _carregat_a: float = 0.0
@@ -42,7 +44,9 @@ def _normalitza(f: dict) -> tuple[str, dict]:
     codi = (f.get("ItemCode") or "").strip()
     return codi, {
         "art_descrip": (f.get("ItemName") or "").strip(),
-        "unitat_venda": (f.get("SalesUnit") or "").strip(),
+        # Granel (propietat 5 o GRA/KG/KGS) -> "GRA": a produccio el granel
+        # te la unitat 'KGS'. Vegeu unitats_sap.py.
+        "unitat_venda": tunitat_efectiva(f.get("SalesUnit"), f.get("Properties5")),
     }
 
 
