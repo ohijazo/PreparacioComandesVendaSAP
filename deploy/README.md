@@ -42,7 +42,7 @@ les comandes de venda.
 |---|---|
 | Servei | `comandes-venda-sap.service`, Gunicorn gthread 2×4, `wsgi:app` |
 | Socket | `0.0.0.0:5002` |
-| Vhost d'Apache | `comandes-venda-sap.conf`, actiu des del 30-09-2026 (pendent que el DNS resolgui) |
+| Vhost d'Apache | `comandes-venda-sap.conf`, actiu des del 30-09-2026; el DNS resol des del 19-11-2026 |
 | Directori | `/var/www/comandes-venda-sap` |
 
 El bind és `0.0.0.0` i no `127.0.0.1` perquè el botó B1UP (UF-038) crida
@@ -70,6 +70,33 @@ fins que resolgui, així que es pot validar tot el camí amb
 
 Procediment: `docs/runbook_url_propia_sap.md`. Petició per Sistemes:
 `docs/peticio_dns_sistemes.md`.
+
+## Redirecció de Kais cap a SAP (des del 23-11-2026)
+
+Amb el pas a producció de SAP (`DB_FARINERA`), `comandes.agrienergia.local`
+redirigeix cap a `http://comandessap.agrienergia.local/` a partir del
+**23-11-2026 a les 00:00** (hora del servidor, `Europe/Madrid`). La regla es va
+posar el 19-11-2026 al vhost de Kais i s'activa sola per data:
+
+```apache
+# /etc/apache2/sites-available/comandes-venda.conf, just sota ServerName
+RewriteEngine On
+RewriteCond %{TIME} >=20261123000000
+RewriteRule ^ http://comandessap.agrienergia.local/ [R=302,L]
+```
+
+- Totes les rutes van a la portada de SAP: els números de comanda de Kais no
+  existeixen a SAP.
+- `302` i no `301`: els navegadors no guarden la redirecció i es pot desfer.
+- `mod_rewrite` s'executa abans del `ProxyPass`, així que la petició no arriba
+  a Kais. El servei `comandes-venda` continua corrent darrere.
+- El codi de Kais no es toca.
+
+Comprovació (a partir del 23-11 ha de donar `302`):
+`curl -sI -H "Host: comandes.agrienergia.local" http://127.0.0.1/ | head -3`
+
+Desfer-ho: restaurar `comandes-venda.conf.bak-20261119` (al mateix directori),
+`sudo apachectl configtest && sudo systemctl reload apache2`.
 
 ## Comandaments del desplegament
 
