@@ -30,7 +30,9 @@ la capa de dades (`consultes.py`).
 ## 2. Entorno técnico
 
 - Servidor SQL SAP: `AE01SAPSQL.Agrienergia.local` (SAP B1 sobre SQL Server)
-- Base de dades: `DB_FARIN_TEST` (entorn test; canviar a producció al `.env` real)
+- Base de dades: `DB_FARIN_TEST` (test) / `DB_FARINERA` (producció, des del 2026-11-19).
+  `SAP_SQL_DATABASE` i `SAP_SL_COMPANY` del `.env` han d'apuntar a la mateixa empresa
+  que el client SAP on es prem el botó (els DocEntry col·lisionen entre empreses).
 - Usuari lectura: `sa` (connexió pyodbc amb `ApplicationIntent=ReadOnly`)
 - Usuari escriptura: pendent — el crearà el consultor SAP per la Fase 2 (usuari
   Service Layer amb permisos limitats sobre els UDFs `U_FCEmbalatge*` a ORDR)

@@ -9,7 +9,7 @@ import time
 import threading
 from flask import Flask, render_template, jsonify, request, Response
 from motor import calcular_embalatges, calcular_embalatges_agrupats, validar_dades_mestres
-from consultes import connectar, obtenir_ultimes_comandes, obtenir_comanda_per_numero, obtenir_recompte_comandes, obtenir_magatzems_from_comandes, obtenir_noms_magatzems, obtenir_titols_infoanex, obtenir_titols_infoanex_clienvio, obtenir_metadata_ordr_per_doc_entry, obtenir_preus_palets_client, obtenir_articles_palet, invalidar_caches_comanda
+from consultes import connectar, obtenir_ultimes_comandes, obtenir_comanda_per_numero, obtenir_recompte_comandes, obtenir_magatzems_from_comandes, obtenir_noms_magatzems, obtenir_titols_infoanex, obtenir_titols_infoanex_clienvio, obtenir_metadata_ordr_per_doc_entry, obtenir_preus_palets_client, obtenir_articles_palet, invalidar_caches_comanda, DATABASE as SAP_DATABASE
 from models import Estat  # compartit via _bootstrap
 from mailer import enviar_correu_autoritzacio, LLINDAR_KG_AUTORITZACIO, obtenir_defaults_destinataris  # compartit via _bootstrap
 from sap_service_layer import SLClient, SLError
@@ -590,7 +590,8 @@ def api_afegir_palets(doc_entry: int):
         if meta["doc_status"] != "O":
             return jsonify({
                 "ok": False,
-                "error": f"La comanda {doc_entry} no està oberta (DocStatus={meta['doc_status']!r})",
+                "error": f"La comanda {doc_entry} no està oberta "
+                         f"(DocStatus={meta['doc_status']!r}, BD={SAP_DATABASE})",
             }), 400
 
         # 2. Càlcul del motor
@@ -631,8 +632,8 @@ def api_afegir_palets(doc_entry: int):
 
         elapsed = time.time() - t0
         logger.info(
-            "afegir-palets DocEntry=%d Series=%s/DocNum=%s → +%d ~%d -%d (%.2fs)",
-            doc_entry, meta["series"], meta["docnum"],
+            "afegir-palets BD=%s DocEntry=%d Series=%s/DocNum=%s → +%d ~%d -%d (%.2fs)",
+            SAP_DATABASE, doc_entry, meta["series"], meta["docnum"],
             stats["added"], stats.get("updated", 0), stats["removed"], elapsed,
         )
 
@@ -652,9 +653,10 @@ def api_afegir_palets(doc_entry: int):
         })
 
     except ValueError as e:
-        # Comanda no trobada, DocEntry invàlid…
-        logger.warning("afegir-palets(%d): %s", doc_entry, e)
-        return jsonify({"ok": False, "error": str(e)}), 404
+        # Comanda no trobada, DocEntry invàlid… La BD va al missatge perquè
+        # els DocEntry col·lisionen entre empreses (test vs producció).
+        logger.warning("afegir-palets(%d) BD=%s: %s", doc_entry, SAP_DATABASE, e)
+        return jsonify({"ok": False, "error": f"{e} (BD={SAP_DATABASE})"}), 404
     except SLError as e:
         logger.error("afegir-palets(%d) SL error: %s", doc_entry, e)
         return jsonify({

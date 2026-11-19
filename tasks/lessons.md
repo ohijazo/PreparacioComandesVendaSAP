@@ -1062,3 +1062,30 @@ línies, i no filtra `LineStatus`.
 3. **Afegir un Valid Value a un UDF també exigeix reiniciar el SL** (L7). Després
    d'afegir `EMBALATGE` el SL continuava retornant `-1004 '"EMBALATGE" is not a
    valid value'` amb la llista vella, tot i que `UFD1` ja el tenia.
+
+## L17 — Canviar d'empresa SAP: el `.env` del servidor i els UDFs que escriu el motor
+
+### Context
+
+El 2026-11-19, en la primera prova del botó a producció (`DB_FARINERA`), SAP va
+retornar `La comanda 1 no està oberta (DocStatus='C')`. La comanda DocEntry=1 de
+producció estava oberta.
+
+### Causa
+
+El webservice continuava amb `SAP_SQL_DATABASE`/`SAP_SL_COMPANY=DB_FARIN_TEST` i va
+llegir la DocEntry=1 de **test** (una comanda tancada d'abril). Els DocEntry
+comencen a 1 a cada empresa, així que l'error no va fer pensar en un canvi d'entorn.
+A més, `RDR1.U_FCAfegit` no existia a `DB_FARINERA`. Amb el `.env` corregit, el
+PATCH del SL hauria fallat igualment.
+
+### Regla per al futur
+
+1. Abans de provar el botó en una empresa nova, cal comprovar al servidor que
+   `SAP_SQL_DATABASE` i `SAP_SL_COMPANY` hi apunten. Després cal reiniciar el servei.
+2. Cal comprovar que hi ha tots els UDFs que el motor **escriu** (`RDR1.U_FCAfegit`,
+   `RDR1.U_SEIMotiuPreuZero` amb els seus Valid Values) i no només els que llegeix:
+   `SELECT TableID, AliasID FROM <BD>..CUFD WHERE AliasID IN ('FCAfegit','SEIMotiuPreuZero')`.
+   Si se'n crea algun, cal reiniciar el SL (L7, L16).
+3. Els errors de l'endpoint `afegir-palets` ja inclouen `BD=<base de dades>`: si no
+   coincideix amb l'empresa del client SAP, el problema és el `.env`.
