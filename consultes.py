@@ -493,7 +493,9 @@ _LINIES_SELECT = """
         -- unitat no es de sacs -> "GRA", que es el que reconeix RF1. A
         -- produccio el granel te SalUnitMsr 'KGS'. Vegeu unitats_sap.py.
         CASE WHEN (UPPER(RTRIM(ISNULL(i.SalUnitMsr, ''))) IN ('GRA', 'KG', 'KGS') OR (i.QryGroup5 = 'Y' AND UPPER(RTRIM(ISNULL(i.SalUnitMsr, ''))) NOT LIKE 'S[0-9]%'))
-             THEN 'GRA' ELSE RTRIM(i.SalUnitMsr) END AS tunitat,
+             THEN 'GRA' ELSE
+             -- S25KG -> S25 (unitats_sap.sql_unitat_sacs)
+             CASE WHEN UPPER(RTRIM(i.SalUnitMsr)) LIKE 'S[0-9]%KG' AND UPPER(LEFT(RTRIM(i.SalUnitMsr), LEN(RTRIM(i.SalUnitMsr)) - 2)) NOT LIKE 'S%[^0-9]%' THEN LEFT(RTRIM(i.SalUnitMsr), LEN(RTRIM(i.SalUnitMsr)) - 2) ELSE RTRIM(i.SalUnitMsr) END END AS tunitat,
         i.SalPackUn AS sal_pack_un,
         i.U_SEIUnitatsPalet AS uxc,
         i.SWeight1 AS pes,

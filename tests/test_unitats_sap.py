@@ -32,3 +32,17 @@ def test_si_la_unitat_es_de_sacs_mana_la_unitat():
 def test_propietat5_sense_unitat_es_granel():
     # ESPECIFICA TURRIS: propietat 5 i sense unitat de venda.
     assert tunitat_efectiva(None, "Y") == "GRA"
+
+
+def test_sacs_amb_kg_al_darrere():
+    # Canvi de dades mestres del 19-11-2026: S25 -> S25KG, S10 -> S10KG...
+    # El motor i les regles continuen veient S25, S10, S05.
+    for u, esperat in (("S25KG", "S25"), ("S10KG", "S10"), ("S05KG", "S05"), (" s25kg ", "s25")):
+        assert tunitat_efectiva(u, "N") == esperat
+    # Un article de sacs amb la propietat 5 continua sent de sacs (32090).
+    assert es_granel("S25KG", "Y") is False
+    assert tunitat_efectiva("S25KG", "tYES") == "S25"
+    # La resta no canvia.
+    assert tunitat_efectiva("UNI", "N") == "UNI"
+    assert tunitat_efectiva("S3,", "N") == "S3,"
+    assert tunitat_efectiva("Kg", "N") == "GRA"
