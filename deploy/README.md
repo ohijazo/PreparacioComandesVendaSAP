@@ -71,17 +71,17 @@ fins que resolgui, així que es pot validar tot el camí amb
 Procediment: `docs/runbook_url_propia_sap.md`. Petició per Sistemes:
 `docs/peticio_dns_sistemes.md`.
 
-## Redirecció de Kais cap a SAP (des del 23-11-2026)
+## Redirecció de Kais cap a SAP (activa des del 21-11-2026)
 
 Amb el pas a producció de SAP (`DB_FARINERA`), `comandes.agrienergia.local`
-redirigeix cap a `http://comandessap.agrienergia.local/` a partir del
-**23-11-2026 a les 00:00** (hora del servidor, `Europe/Madrid`). La regla es va
-posar el 19-11-2026 al vhost de Kais i s'activa sola per data:
+redirigeix cap a `http://comandessap.agrienergia.local/`. La regla es va posar el
+19-11-2026 al vhost de Kais, programada per al 23-11 amb un `RewriteCond %{TIME}`.
+El **21-11-2026 a les 09:58** es va treure la condició de data per avançar-la i ara
+està activa sense condicions:
 
 ```apache
 # /etc/apache2/sites-available/comandes-venda.conf, just sota ServerName
 RewriteEngine On
-RewriteCond %{TIME} >=20261123000000
 RewriteRule ^ http://comandessap.agrienergia.local/ [R=302,L]
 ```
 
@@ -92,11 +92,13 @@ RewriteRule ^ http://comandessap.agrienergia.local/ [R=302,L]
   a Kais. El servei `comandes-venda` continua corrent darrere.
 - El codi de Kais no es toca.
 
-Comprovació (a partir del 23-11 ha de donar `302`):
+Comprovació (ha de donar `302 Found` amb `Server: Apache`):
 `curl -sI -H "Host: comandes.agrienergia.local" http://127.0.0.1/ | head -3`
 
-Desfer-ho: restaurar `comandes-venda.conf.bak-20261119` (al mateix directori),
-`sudo apachectl configtest && sudo systemctl reload apache2`.
+Desfer-ho (al mateix directori), seguit de
+`sudo apachectl configtest && sudo systemctl reload apache2`:
+- `comandes-venda.conf.bak-20261121`: torna a la regla programada per data.
+- `comandes-venda.conf.bak-20261119`: sense cap redirecció (Kais com abans).
 
 ## Comandaments del desplegament
 
