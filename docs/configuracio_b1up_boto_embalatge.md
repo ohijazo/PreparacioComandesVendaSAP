@@ -150,6 +150,15 @@ desar-la primer.
 - L'endpoint retorna HTTP 400 i no afegeix res; el botó ensenya el motiu
   (cos de la resposta) al MessageBox.
 
+### La comanda és d'un altre magatzem (NO_APLICA)
+
+El botó només embala les línies del magatzem **01** (`SAP_MAGATZEM_EMBALATGE`).
+- Si la comanda no té cap línia del 01 (per exemple, Mallorca 05 o Salzadella 04),
+  el MessageBox diu `NO_APLICA` i la comanda no es toca.
+- En una comanda que barregi magatzems, només compten les línies del 01. La
+  traçabilitat ho indica amb una línia `MAGATZEM:`.
+- Les línies palet del motor sempre van al 01.
+
 ### SOTA_MINIM — sí calcula i afegeix
 
 Tot i estar sota mínim, el motor calcula la proposta d'embalatges (mateix

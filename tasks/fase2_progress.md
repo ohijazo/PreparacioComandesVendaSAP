@@ -723,3 +723,34 @@ Valors vàlids del camp: MOSTRA, COMPENSACIO, ACCIO COMERCIAL. Decisió: valor n
 3. Línies manuals de l'operari a preu 0 sense motiu continuaran bloquejant el
    botó (és la regla de negoci; el missatge de SAP ja ho explica).
 4. Deploy a Ubuntu.
+
+## §2.13 Botó només per al magatzem 01 (2026-11-23)
+
+### Petició
+Magatzem: el botó "Calcular embalatges" només ha d'actuar sobre les línies del
+magatzem 01. El 21-11, el botó havia afegit palets a comandes de Mallorca (05):
+26600002, 26600099, 26600102 i 26600103. Es deixen com estan.
+
+### Decisió
+- Comanda sense cap línia del 01: el botó respon **200 `NO_APLICA`** amb un missatge
+  i no crida ni el motor ni el SL. És un 200 i no un 4xx perquè el codi B1UP actual
+  ja ensenya `estat` i `missatges` en un MessageBox; no cal tocar la UF-038.
+- Comanda mixta (no n'hi ha cap a producció): només compten les línies del 01.
+- La web `comandessap` no canvia i continua calculant tots els magatzems.
+
+### Canvis
+- `consultes.py` · `obtenir_metadata_ordr_per_doc_entry`: nou `magatzems`, els
+  `WhsCode` de les línies que no són del motor (`U_FCAfegit <> 'S'`).
+- `motor.py` · `calcular_embalatges(..., magatzems=None)`: filtra `Linia.magatzem`
+  i deixa una línia `MAGATZEM:` a la traçabilitat.
+- `sap_line_builder.py`: `MAGATZEM_EMBALATGE` (env `SAP_MAGATZEM_EMBALATGE`, per defecte `01`).
+- `app.py` · `/api/afegir-palets`: comprovació `NO_APLICA`, motor amb `magatzems={"01"}`
+  i línies palet sempre al 01 (abans anaven al magatzem de la primera línia).
+- Tests: `tests/test_magatzem_boto.py` (4 nous, 147 en verd).
+
+### Verificació (local, DB_FARINERA, només lectura)
+- 26600103 i 26600099 (05) → `NO_APLICA`.
+- 26600033 (01) → 1 × 01010; 26600052 (01) → 3 × 01030. Igual que abans del canvi.
+
+### Pendent
+- Deploy a Ubuntu i prova del botó en una comanda del 05 i en una del 01.

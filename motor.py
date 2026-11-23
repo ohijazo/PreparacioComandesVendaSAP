@@ -15,9 +15,13 @@ from models import Estat, PaletResum  # compartit via _bootstrap
 def calcular_embalatges(sal_codigo: str, cpa_albara: str, forcar: bool = False,
                         conn_compartida=None, tra_codi_carrega: str | None = None,
                         eje_ejercicio: str | None = None,
-                        data_carrega: str | date | datetime | None = None):
+                        data_carrega: str | date | datetime | None = None,
+                        magatzems: set[str] | None = None):
     """Calcula embalatges per una comanda.
 
+    magatzems: si es passa, només compten les línies d'aquests magatzems
+        (`Linia.magatzem`). El botó B1UP hi passa {"01"}; la web no en passa
+        cap i calcula totes les línies.
     conn_compartida: si es passa, reutilitza la connexió (per batch).
     tra_codi_carrega: codi de transportista de la càrrega d'origen.
     eje_ejercicio: any de l'exercici de la comanda. Imprescindible quan el
@@ -61,10 +65,22 @@ def calcular_embalatges(sal_codigo: str, cpa_albara: str, forcar: bool = False,
             direccio.tipus_descarrega = "MANUAL"
             tipus_desc_origen = "MANUAL (cap palet trobat a PREUSCLIENTS)"
 
+    excloses_magatzem = []
+    if magatzems is not None:
+        excloses_magatzem = [l for l in linies if (l.magatzem or "") not in magatzems]
+        linies = [l for l in linies if (l.magatzem or "") in magatzems]
+
     resultat = aplicar_regles(linies, direccio, forcar=forcar)
     resultat.linies = linies
     resultat.comanda = comanda
     resultat.direccio = direccio
+
+    if excloses_magatzem:
+        resultat.trazabilitat.insert(0,
+            f"MAGATZEM: {len(excloses_magatzem)} línies excloses "
+            f"(només es calculen els magatzems {', '.join(sorted(magatzems))}): "
+            + ", ".join(f"{l.art_codi} [{l.magatzem}]" for l in excloses_magatzem)
+        )
 
     if tipus_desc_origen:
         resultat.trazabilitat.insert(0,

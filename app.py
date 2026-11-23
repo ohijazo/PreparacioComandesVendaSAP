@@ -19,6 +19,7 @@ from sap_line_builder import (
     MARCADOR_LINIA_PALET_VALOR,
     MOTIU_PREU_ZERO_UDF,
     MOTIU_PREU_ZERO_PALET,
+    MAGATZEM_EMBALATGE,
 )
 
 # ============================================================
@@ -594,9 +595,37 @@ def api_afegir_palets(doc_entry: int):
                          f"(DocStatus={meta['doc_status']!r}, BD={SAP_DATABASE})",
             }), 400
 
-        # 2. Càlcul del motor
+        # Només s'embala al magatzem 01. Una comanda d'un altre magatzem no es
+        # toca. És un 200 i no un error: el botó B1UP ensenya `estat` i
+        # `missatges` en un MessageBox, mentre que un 4xx sortiria com a "Error HTTP".
+        if MAGATZEM_EMBALATGE not in meta["magatzems"]:
+            altres = ", ".join(sorted(meta["magatzems"])) or "cap"
+            logger.info(
+                "afegir-palets BD=%s DocEntry=%d Series=%s/DocNum=%s → NO_APLICA "
+                "(magatzems: %s)",
+                SAP_DATABASE, doc_entry, meta["series"], meta["docnum"], altres,
+            )
+            return jsonify({
+                "ok": True,
+                "doc_entry": doc_entry,
+                "estat": "NO_APLICA",
+                "linies_afegides": 0,
+                "linies_actualitzades": 0,
+                "linies_esborrades": 0,
+                "resum": {"total_palets": 0, "total_sacs": 0, "avisos": 0},
+                "missatges": [
+                    f"El càlcul d'embalatges només s'aplica a les línies del "
+                    f"magatzem {MAGATZEM_EMBALATGE}. Aquesta comanda és del "
+                    f"magatzem {altres}: no s'ha modificat."
+                ],
+            })
+
+        # 2. Càlcul del motor (només les línies del magatzem d'embalatge)
         forcar = request.args.get("forcar", "0") == "1"
-        resultat = calcular_embalatges(meta["series"], meta["docnum"], forcar=forcar)
+        resultat = calcular_embalatges(
+            meta["series"], meta["docnum"], forcar=forcar,
+            magatzems={MAGATZEM_EMBALATGE},
+        )
 
         if resultat.estat == Estat.NO_CALCULABLE:
             return jsonify({
@@ -612,7 +641,7 @@ def api_afegir_palets(doc_entry: int):
 
         # 3. Generar línies palet físiques (amb preus del UDT SEITARIFA si n'hi ha)
         linies_noves = generar_linies_palet_sap(
-            resultat.palets, meta["whs_code"], preus_client=preus_palet
+            resultat.palets, MAGATZEM_EMBALATGE, preus_client=preus_palet
         )
 
         # 4. Substituir línies velles via SL (o esborrar si no n'hi ha de noves)

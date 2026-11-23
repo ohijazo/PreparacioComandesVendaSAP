@@ -1054,8 +1054,13 @@ def obtenir_metadata_ordr_per_doc_entry(conn, doc_entry: int) -> dict:
     `(Series, DocNum)`. També retorna un `whs_code` de referència agafat de
     la primera línia RDR1, útil com a default per línies palet noves.
 
-    Retorna dict amb: series, docnum, card_code, addr, doc_status, whs_code.
+    Retorna dict amb: series, docnum, card_code, addr, doc_status, whs_code,
+    magatzems.
     `whs_code` pot ser None si la comanda encara no té cap línia.
+    `magatzems` és el conjunt de `WhsCode` de les línies que no ha escrit el
+    motor (`U_FCAfegit <> 'S'`): el botó només calcula si hi ha el 01. Les
+    línies palet del motor van sempre al 01 i farien passar per bona una
+    comanda d'un altre magatzem.
     `addr` és `ShipToCode` — el **codi** de la direcció d'enviament, el mateix
     que fa servir `obtenir_comanda()` i el que cal per casar amb les tarifes
     `@SEITARIFACAB.U_SEIDireccion`. (`Address2` és l'adreça formatada en text,
@@ -1075,6 +1080,16 @@ def obtenir_metadata_ordr_per_doc_entry(conn, doc_entry: int) -> dict:
     row = conn.execute(sql, doc_entry).fetchone()
     if row is None:
         raise ValueError(f"Comanda amb DocEntry={doc_entry} no trobada a ORDR")
+    magatzems = {
+        r.WhsCode for r in conn.execute(
+            """
+            SELECT DISTINCT RTRIM(WhsCode) AS WhsCode FROM RDR1 WITH (NOLOCK)
+             WHERE DocEntry = ? AND WhsCode IS NOT NULL
+               AND ISNULL(U_FCAfegit, '') <> 'S'
+            """,
+            doc_entry,
+        ).fetchall()
+    }
     return {
         "series": str(int(row.Series)),
         "docnum": str(int(row.DocNum)),
@@ -1082,4 +1097,5 @@ def obtenir_metadata_ordr_per_doc_entry(conn, doc_entry: int) -> dict:
         "addr": (row.ShipToCode or "").strip() or None,
         "doc_status": row.DocStatus or "",
         "whs_code": row.WhsCode or None,
+        "magatzems": magatzems,
     }

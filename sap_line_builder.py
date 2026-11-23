@@ -52,6 +52,12 @@ MOTIU_PREU_ZERO_PALET = (
     os.environ.get("SAP_MOTIU_PREU_ZERO_PALET", "").strip() or "EMBALATGE"
 )
 
+# Magatzem on s'embalen les comandes: el botó només calcula les línies
+# d'aquest magatzem, i les línies palet que afegeix hi van totes.
+MAGATZEM_EMBALATGE = (
+    os.environ.get("SAP_MAGATZEM_EMBALATGE", "").strip() or "01"
+)
+
 
 def generar_linies_palet_sap(
     palets,  # list[PaletResum] — evitem import per raons d'aïllament
