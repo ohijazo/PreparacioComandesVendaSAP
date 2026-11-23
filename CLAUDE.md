@@ -33,6 +33,10 @@ la capa de dades (`consultes.py`).
 - Base de dades: `DB_FARIN_TEST` (test) / `DB_FARINERA` (producció, des del 2026-11-19).
   `SAP_SQL_DATABASE` i `SAP_SL_COMPANY` del `.env` han d'apuntar a la mateixa empresa
   que el client SAP on es prem el botó (els DocEntry col·lisionen entre empreses).
+  **El `.env` de dev (`P:\preparacioComandesVendaSAP\.env`) apunta a `DB_FARIN_TEST` a
+  propòsit** i no es desplega (és a `.gitignore`). Producció llegeix
+  `/var/www/comandes-venda-sap/.env` al servidor, que és a `DB_FARINERA`.
+  No s'ha de passar el de dev a producció: els scripts i proves locals escriuen via SL.
 - Usuari lectura: `sa` (connexió pyodbc amb `ApplicationIntent=ReadOnly`)
 - Usuari escriptura: pendent — el crearà el consultor SAP per la Fase 2 (usuari
   Service Layer amb permisos limitats sobre els UDFs `U_FCEmbalatge*` a ORDR)
