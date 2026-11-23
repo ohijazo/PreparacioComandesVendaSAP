@@ -1089,3 +1089,17 @@ PATCH del SL hauria fallat igualment.
    Si se'n crea algun, cal reiniciar el SL (L7, L16).
 3. Els errors de l'endpoint `afegir-palets` ja inclouen `BD=<base de dades>`: si no
    coincideix amb l'empresa del client SAP, el problema és el `.env`.
+
+## L18 — `pytest` des de l'arrel executa scripts que escriuen a SAP
+
+### Context
+El 2026-11-23, un `python -m pytest -q` llançat des de l'arrel del repo va recollir
+els `scripts/test_*.py`. Aquests fitxers fan login i PATCH al Service Layer en
+importar-se, sense cap `def test_` ni `__main__`. Van escriure a `DB_FARIN_TEST`
+(l'empresa del `.env` local): `Comments = "test motor N"` a les comandes 62, 126,
+171, 211 i 224, i diversos PATCH de línies a la 92.
+
+### Regla per al futur
+1. Els tests s'executen amb `pytest tests` o amb el `pytest.ini` (`testpaths = tests`).
+2. Un script que escriu a SAP no s'ha de dir `test_*.py`, i la feina ha d'anar sota `if __name__ == "__main__":`.
+3. El `.env` de dev ha de continuar a `DB_FARIN_TEST`. Si apuntés a producció, aquest error hauria modificat comandes reals.
