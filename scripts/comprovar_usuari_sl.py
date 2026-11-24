@@ -24,9 +24,25 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.chdir(os.path.join(os.path.dirname(__file__), ".."))
 
 
+def _carregar_env() -> None:
+    """Llegeix el .env com `consultes.py`, sense sobreescriure l'entorn.
+
+    No s'importa `consultes`: arrossega `_bootstrap`, que exigeix
+    `KAIS_APP_PATH` abans d'haver llegit el .env. El servei no té aquest
+    problema perquè systemd li passa el .env (`EnvironmentFile`).
+    """
+    if not os.path.exists(".env"):
+        return
+    with open(".env") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                os.environ.setdefault(key.strip(), val.strip())
+
+
 def main() -> int:
-    import _bootstrap  # noqa: F401
-    import consultes  # noqa: F401 — carrega el .env (no sobreescriu l'entorn)
+    _carregar_env()
     from sap_service_layer import SLClient, SLError
 
     url = os.environ["SAP_SL_URL"]
