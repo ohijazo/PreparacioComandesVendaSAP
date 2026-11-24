@@ -38,8 +38,9 @@ la capa de dades (`consultes.py`).
   `/var/www/comandes-venda-sap/.env` al servidor, que és a `DB_FARINERA`.
   No s'ha de passar el de dev a producció: els scripts i proves locals escriuen via SL.
 - Usuari lectura: `sa` (connexió pyodbc amb `ApplicationIntent=ReadOnly`)
-- Usuari escriptura: pendent — el crearà el consultor SAP per la Fase 2 (usuari
-  Service Layer amb permisos limitats sobre els UDFs `U_FCEmbalatge*` a ORDR)
+- Usuari escriptura (Service Layer, botó B1UP): `Proceso` (llicència d'accés indirecte),
+  des del 24-11-2026. Abans era `OHijazo`, que s'ha donat de baixa. Procediment de canvi i
+  comprovació: `deploy/README.md` § "Usuari del Service Layer" i `scripts/comprovar_usuari_sl.py`.
 - Driver: ODBC Driver 18 for SQL Server
 - Aplicació canònica Kais: `P:\preparacioComandesVenda`
 

@@ -103,8 +103,9 @@ Desfer-ho (al mateix directori), seguit de
 ## Usuari del Service Layer (botó B1UP)
 
 El botó escriu les línies palet a SAP amb l'usuari de `SAP_SL_USER` /
-`SAP_SL_PASSWORD` del `.env` del servidor. Fins al 24-11-2026 era `OHijazo`, que
-es dona de baixa. Ha de ser un usuari SAP amb llicència i autorització per
+`SAP_SL_PASSWORD` del `.env` del servidor. Des del 24-11-2026 és **`Proceso`**
+(llicència d'accés indirecte), comprovat amb el script contra `DB_FARINERA`. Abans
+era `OHijazo`, que s'ha donat de baixa. Còpia prèvia: `.env.bak-20261124`. Ha de ser un usuari SAP amb llicència i autorització per
 modificar comandes de venda. A l'historial de les comandes, les línies del motor
 surten a nom d'aquest usuari.
 
