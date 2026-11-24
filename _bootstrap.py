@@ -60,5 +60,11 @@ def _apply_sap_overrides() -> None:
     if sap_extras:
         regles.OVERRIDES_PALET_CLIENT = regles.OVERRIDES_PALET_CLIENT | sap_extras
 
+    # BASE PALET: a SAP el 01010 es va desactivar el 24-11-2026 i el substitueix
+    # el 01020 (no inventariable). Kais continua amb 01010. S'ha de fer abans que
+    # `motor` faci `from regles import ART_BASE_PALET`; `regles` llegeix el global
+    # en temps d'execució.
+    regles.ART_BASE_PALET = os.environ.get("SAP_ART_BASE_PALET", "").strip() or "01020"
+
 
 _apply_sap_overrides()

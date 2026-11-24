@@ -754,3 +754,19 @@ magatzem 01. El 21-11, el botó havia afegit palets a comandes de Mallorca (05):
 
 ### Pendent
 - Deploy a Ubuntu i prova del botó en una comanda del 05 i en una del 01.
+
+## §2.14 BASE PALET 01010 → 01020 (2026-11-24)
+
+**Error**: el botó a la 26600241 (DocEntry 241) va respondre 502 amb `Service Layer: Error 400 ...
+10001069 - Item 01010 is inactive`. Aquell mateix dia, a `DB_FARINERA`, algú havia desactivat el
+01010 (BASE PALET, inventariable) i activat el 01020 (BASE PALET, no inventariable), tots dos
+al grup 152.
+
+**Fix**: `_bootstrap._apply_sap_overrides` posa `regles.ART_BASE_PALET` al valor de
+`SAP_ART_BASE_PALET` (per defecte `01020`). No es toca `regles.py`: Kais segueix amb 01010.
+Funciona perquè el bootstrap s'executa abans del `from regles import ART_BASE_PALET` de
+`motor.py`, i perquè `regles` llegeix el global en temps d'execució.
+
+**Pendent a SAP**: unes 45 comandes obertes ja porten línies 01010 (`U_FCAfegit='S'`). Si es
+tornen a calcular, el botó esborra la 01010 i hi posa la 01020. Si SAP bloqueja la còpia a
+albarà d'una línia amb un article inactiu, caldrà canviar-les a mà o reactivar el 01010.
