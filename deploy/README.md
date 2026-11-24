@@ -100,6 +100,25 @@ Desfer-ho (al mateix directori), seguit de
 - `comandes-venda.conf.bak-20261121`: torna a la regla programada per data.
 - `comandes-venda.conf.bak-20261119`: sense cap redirecció (Kais com abans).
 
+## Usuari del Service Layer (botó B1UP)
+
+El botó escriu les línies palet a SAP amb l'usuari de `SAP_SL_USER` /
+`SAP_SL_PASSWORD` del `.env` del servidor. Fins al 24-11-2026 era `OHijazo`, que
+es dona de baixa. Ha de ser un usuari SAP amb llicència i autorització per
+modificar comandes de venda. A l'historial de les comandes, les línies del motor
+surten a nom d'aquest usuari.
+
+Canviar-lo:
+1. Provar l'usuari nou sense tocar el `.env`, només lectura:
+   `scripts/comprovar_usuari_sl.py` (l'ús és al docstring).
+2. `sudo cp -p .env .env.bak-<data>`, editar `SAP_SL_USER` i `SAP_SL_PASSWORD`
+   amb `sudo nano .env`.
+3. `sudo systemctl restart comandes-venda-sap`. El client SL és un singleton per
+   procés i no rellegeix el `.env`.
+4. Tornar a executar el script sense variables i prémer el botó en una comanda.
+
+La lectura (SQL, `SAP_SQL_USER=sa`) no depèn de cap persona.
+
 ## Comandaments del desplegament
 
 ```bash
