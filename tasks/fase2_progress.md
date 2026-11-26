@@ -754,3 +754,17 @@ magatzem 01. El 21-11, el botó havia afegit palets a comandes de Mallorca (05):
 
 ### Pendent
 - Deploy a Ubuntu i prova del botó en una comanda del 05 i en una del 01.
+
+## §2.14 Palets inactius a la tarifa del client (2026-11-26)
+
+**Error**: botó a la 26600387 (C211547) → 502 `Service Layer: Error 400 ... 10001069 - Item 01110
+is inactive`. La tarifa activa del client (`@SEITARIFACAB` 222) té com a palet el 01110
+(PALET FUSTA 120X90), inactiu a OITM (`frozenFor='Y'`).
+
+**Fix**: `consultes.obtenir_palet_client` fa JOIN amb OITM i ignora els palets inactius. El motor
+cau al palet de la comanda o, amb descàrrega PALET, al 01030 per defecte amb l'avís
+"Cal donar d'alta el palet del client". Verificat contra DB_FARINERA (lectura): la 387 passa de
+4×01110 a 4×01030.
+
+Tarifes actives amb palet inactiu a 26-11: 01110 a C211547, C241297, C271382, C291106, C301000,
+C301032, C321234, C351001; 01022 a C351001. Cal que comercial les actualitzi.

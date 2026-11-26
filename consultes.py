@@ -711,6 +711,8 @@ def obtenir_palet_client(cli_codi: str, adr_codi: str | None = None, conn=None) 
       (ex. `000-NUTREX PINSOS, SL-BANYOLES`), per tant la comparació és
       d'igualtat. Si cap tarifa és d'aquesta direcció, guanya la més recent.
     - Dins la tarifa triada, agafa la primera línia amb ItemName que comença per 'PALET'.
+    - S'ignoren els palets inactius a OITM (`frozenFor='Y'`): el client cau al
+      palet de la comanda o al 01030 per defecte (`motor._resoldre_tipus_palet`).
     """
     cache_key = (cli_codi, adr_codi or "")
     if cache_key in _palet_client_cache:
@@ -729,6 +731,9 @@ def obtenir_palet_client(cli_codi: str, adr_codi: str | None = None, conn=None) 
                 RTRIM(d.U_SEIItemName) AS art_descrip
             FROM [@SEITARIFACAB] c WITH (NOLOCK)
             INNER JOIN [@SEITARIFADET] d WITH (NOLOCK) ON d.DocEntry = c.DocEntry
+            -- Palets inactius a OITM (ex. 01110): SL rebutja la línia (10001069).
+            INNER JOIN OITM i WITH (NOLOCK) ON i.ItemCode = d.U_SEIItemCode
+                                           AND i.frozenFor <> 'Y'
             WHERE c.U_SEICardCode = ?
               AND c.U_SEIActivo = 'Y'
               AND c.Canceled <> 'Y'
